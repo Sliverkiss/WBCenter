@@ -1,0 +1,58 @@
+# --- OS / Editor ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.sublime-*
+
+# --- Logs & temp ---
+*.log
+tmp/
+temp/
+.cache/
+
+# --- Environment & secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# --- Go ---
+*.exe
+*.test
+*.out
+bin/
+
+# --- Java ---
+target/
+*.class
+*.jar
+!gradle-wrapper.jar
+
+# --- Docker ---
+docker-compose.override.yml
+
+# --- Misc archives ---
+*.zip
+*.tar.gz
+*.7z
