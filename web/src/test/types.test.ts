@@ -23,9 +23,11 @@ describe('isAccount', () => {
   })
 
   test('拒绝缺少必需字段的对象', () => {
-    const { uid: _uid, ...noUid } = valid
+    const noUid: Record<string, unknown> = { ...valid }
+    delete noUid.uid
     expect(isAccount(noUid)).toBe(false)
-    const { expires_at: _e, ...noExpires } = valid
+    const noExpires: Record<string, unknown> = { ...valid }
+    delete noExpires.expires_at
     expect(isAccount(noExpires)).toBe(false)
   })
 
@@ -68,7 +70,8 @@ describe('isCreditSummary', () => {
   })
 
   test('拒绝数值字段缺失或类型错误的对象', () => {
-    const { current: _c, ...noCurrent } = valid
+    const noCurrent: Record<string, unknown> = { ...valid }
+    delete noCurrent.current
     expect(isCreditSummary(noCurrent)).toBe(false)
     expect(isCreditSummary({ ...valid, today_remaining: '60' })).toBe(false)
   })
