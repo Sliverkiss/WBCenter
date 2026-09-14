@@ -41,7 +41,7 @@ func newModelsService(t *testing.T, accounts []*authstore.Account, up ModelsUpst
 func TestModelsParsesPricingFields(t *testing.T) {
 	fake := &fakeModelsUpstream{
 		models: map[string][]map[string]any{
-			"u-m-1": {
+			"u-mdl-001": {
 				{
 					"id":             "wb-pro",
 					"name":           "WorkBuddy Pro",
@@ -54,7 +54,7 @@ func TestModelsParsesPricingFields(t *testing.T) {
 			},
 		},
 	}
-	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-m-1")}, fake)
+	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-mdl-001")}, fake)
 	items := svc.Models(context.Background())
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1", len(items))
@@ -93,10 +93,10 @@ func TestModelsFreeBadgeExtraction(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			fake := &fakeModelsUpstream{
 				models: map[string][]map[string]any{
-					"u-m-1": {{"id": "m1", "tags": c.tags}},
+					"u-mdl-001": {{"id": "m1", "tags": c.tags}},
 				},
 			}
-			svc := newModelsService(t, []*authstore.Account{healthyAccount("u-m-1")}, fake)
+			svc := newModelsService(t, []*authstore.Account{healthyAccount("u-mdl-001")}, fake)
 			items := svc.Models(context.Background())
 			if len(items) != 1 {
 				t.Fatalf("len = %d", len(items))
@@ -118,10 +118,10 @@ func TestModelsFreeBadgeExtraction(t *testing.T) {
 func TestModelsMissingFieldsDegrade(t *testing.T) {
 	fake := &fakeModelsUpstream{
 		models: map[string][]map[string]any{
-			"u-m-1": {{"id": "wb-old", "name": "WorkBuddy Old"}},
+			"u-mdl-001": {{"id": "wb-old", "name": "WorkBuddy Old"}},
 		},
 	}
-	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-m-1")}, fake)
+	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-mdl-001")}, fake)
 	items := svc.Models(context.Background())
 	if len(items) != 1 {
 		t.Fatalf("len = %d", len(items))
@@ -136,10 +136,10 @@ func TestModelsMissingFieldsDegrade(t *testing.T) {
 func TestModelsHandlerShape(t *testing.T) {
 	fake := &fakeModelsUpstream{
 		models: map[string][]map[string]any{
-			"u-m-1": {{"id": "wb-pro", "name": "Pro", "credits": "x1 credits", "supportsImages": true}},
+			"u-mdl-001": {{"id": "wb-pro", "name": "Pro", "credits": "x1 credits", "supportsImages": true}},
 		},
 	}
-	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-m-1")}, fake)
+	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-mdl-001")}, fake)
 	srv := httptest.NewServer(NewServer(svc, http.NotFoundHandler()).Handler())
 	defer srv.Close()
 	cookie := login(t, srv)
@@ -181,14 +181,14 @@ func TestModelsHandlerShape(t *testing.T) {
 func TestModelPricingNormalPath(t *testing.T) {
 	fake := &fakeModelsUpstream{
 		models: map[string][]map[string]any{
-			"u-p-1": {
+			"u-prc-0001": {
 				{"id": "wb-pro", "name": "Pro", "credits": "x0.51 credits"},
 				{"id": "wb-lite", "name": "Lite", "credits": "x0 credits"},
 				{"id": "wb-trial", "name": "Trial", "tags": []any{"限时免费"}},
 			},
 		},
 	}
-	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-p-1")}, fake)
+	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-prc-0001")}, fake)
 	resp := svc.ModelPricing(context.Background())
 	if !resp.PricingAvailable {
 		t.Errorf("PricingAvailable = false, want true（至少一个模型有 credits）")
@@ -217,12 +217,12 @@ func TestModelPricingNormalPath(t *testing.T) {
 func TestModelPricingNoCredits(t *testing.T) {
 	fake := &fakeModelsUpstream{
 		models: map[string][]map[string]any{
-			"u-p-1": {
+			"u-prc-0001": {
 				{"id": "wb-old", "name": "Old"},
 			},
 		},
 	}
-	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-p-1")}, fake)
+	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-prc-0001")}, fake)
 	resp := svc.ModelPricing(context.Background())
 	if resp.PricingAvailable {
 		t.Errorf("PricingAvailable = true, want false")
@@ -243,13 +243,13 @@ func TestModelPricingNoCredits(t *testing.T) {
 func TestModelPricingPartialData(t *testing.T) {
 	fake := &fakeModelsUpstream{
 		models: map[string][]map[string]any{
-			"u-p-1": {
+			"u-prc-0001": {
 				{"id": "wb-pro", "credits": "x1 credits"},
 				{"id": "wb-old"},
 			},
 		},
 	}
-	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-p-1")}, fake)
+	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-prc-0001")}, fake)
 	resp := svc.ModelPricing(context.Background())
 	if !resp.PricingAvailable {
 		t.Errorf("部分有 credits 时 PricingAvailable 应为 true")
@@ -273,10 +273,10 @@ func TestModelPricingPartialData(t *testing.T) {
 func TestModelPricingUpstreamFails(t *testing.T) {
 	fake := &fakeModelsUpstream{
 		errs: map[string]error{
-			"u-p-1": &upstream.Error{Kind: upstream.ErrServer, Status: 503, Msg: "upstream down"},
+			"u-prc-0001": &upstream.Error{Kind: upstream.ErrServer, Status: 503, Msg: "upstream down"},
 		},
 	}
-	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-p-1")}, fake)
+	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-prc-0001")}, fake)
 	resp := svc.ModelPricing(context.Background())
 	if resp.PricingAvailable {
 		t.Errorf("全失败时 PricingAvailable 应为 false")
@@ -293,10 +293,10 @@ func TestModelPricingUpstreamFails(t *testing.T) {
 func TestModelPricingHandlerShape(t *testing.T) {
 	fake := &fakeModelsUpstream{
 		models: map[string][]map[string]any{
-			"u-p-1": {{"id": "wb-pro", "name": "Pro", "credits": "x1 credits", "supportsImages": true}},
+			"u-prc-0001": {{"id": "wb-pro", "name": "Pro", "credits": "x1 credits", "supportsImages": true}},
 		},
 	}
-	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-p-1")}, fake)
+	svc := newModelsService(t, []*authstore.Account{healthyAccount("u-prc-0001")}, fake)
 	srv := httptest.NewServer(NewServer(svc, http.NotFoundHandler()).Handler())
 	defer srv.Close()
 	cookie := login(t, srv)
@@ -357,13 +357,13 @@ func (f *fakeGrowthUpstream) GrowthTasks(a *authstore.Account) ([]upstream.Growt
 func TestActivitiesTaskType(t *testing.T) {
 	fake := &fakeGrowthUpstream{
 		tasks: map[string][]upstream.GrowthTask{
-			"u-a-1": {
+			"u-act-0001": {
 				{Code: "daily_login", Name: "每日签到", Status: "可领取", Reward: 100, TaskType: "daily"},
 				{Code: "first_buddy", Name: "首次领养猫猫", Status: "进行中", Reward: 300, TaskType: "once"},
 			},
 		},
 	}
-	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-a-1")}, &fakeUpstream{})
+	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-act-0001")}, &fakeUpstream{})
 	svc.growthLister = fake
 	items := svc.Activities(context.Background())
 	if len(items) != 2 {
@@ -420,19 +420,19 @@ func (f *fakeLotteryUpstream) LotteryRewards(a *authstore.Account, page, pageSiz
 // TestLotteryNormalPath 正常聚合：chances/draws_total/recent/rewards_total。
 func TestLotteryNormalPath(t *testing.T) {
 	fake := &fakeLotteryUpstream{
-		summary: map[string]map[string]any{"u-l-1": {}},
-		chances: map[string]map[string]any{"u-l-1": {"chances": float64(2)}},
+		summary: map[string]map[string]any{"u-lot-0001": {}},
+		chances: map[string]map[string]any{"u-lot-0001": {"chances": float64(2)}},
 		draws: map[string]map[string]any{
-			"u-l-1": {
+			"u-lot-0001": {
 				"total": float64(5),
 				"draws": []any{
 					map[string]any{"prize_name": "积分 +10", "created_at": "2026-09-10 12:00"},
 				},
 			},
 		},
-		rewards: map[string]map[string]any{"u-l-1": {"total": float64(1)}},
+		rewards: map[string]map[string]any{"u-lot-0001": {"total": float64(1)}},
 	}
-	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-l-1")}, &fakeUpstream{})
+	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-lot-0001")}, &fakeUpstream{})
 	svc.lotteryReader = fake
 	items := svc.LotteryOverview(context.Background())
 	if len(items) != 1 {
@@ -453,13 +453,13 @@ func TestLotteryNormalPath(t *testing.T) {
 // TestLotteryUpstreamFails 单账号失败：error 下沉，其余字段零值，整批不中断。
 func TestLotteryUpstreamFails(t *testing.T) {
 	fake := &fakeLotteryUpstream{
-		errs: map[string]error{"u-l-1": errors.New("upstream down")},
-		chances: map[string]map[string]any{"u-l-2": {"chances": float64(3)}},
-		draws:   map[string]map[string]any{"u-l-2": {"total": float64(0)}},
-		rewards: map[string]map[string]any{"u-l-2": {"total": float64(0)}},
-		summary: map[string]map[string]any{"u-l-2": {}},
+		errs: map[string]error{"u-lot-0001": errors.New("upstream down")},
+		chances: map[string]map[string]any{"u-lot-0002": {"chances": float64(3)}},
+		draws:   map[string]map[string]any{"u-lot-0002": {"total": float64(0)}},
+		rewards: map[string]map[string]any{"u-lot-0002": {"total": float64(0)}},
+		summary: map[string]map[string]any{"u-lot-0002": {}},
 	}
-	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-l-1"), healthyAccount("u-l-2")}, &fakeUpstream{})
+	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-lot-0001"), healthyAccount("u-lot-0002")}, &fakeUpstream{})
 	svc.lotteryReader = fake
 	items := svc.LotteryOverview(context.Background())
 	if len(items) != 2 {
@@ -467,7 +467,7 @@ func TestLotteryUpstreamFails(t *testing.T) {
 	}
 	var failed, ok *LotteryItem
 	for i := range items {
-		if items[i].UID == "u-l-1" {
+		if items[i].UID == "u-lot-0001" {
 			failed = &items[i]
 		} else {
 			ok = &items[i]
@@ -484,12 +484,12 @@ func TestLotteryUpstreamFails(t *testing.T) {
 // TestLotteryEmptyUpstreamData 上游返回空对象（Apifox 登记的形态）：全部零值 + note 占位标注。
 func TestLotteryEmptyUpstreamData(t *testing.T) {
 	fake := &fakeLotteryUpstream{
-		summary: map[string]map[string]any{"u-l-1": {}},
-		chances: map[string]map[string]any{"u-l-1": {}},
-		draws:   map[string]map[string]any{"u-l-1": {}},
-		rewards: map[string]map[string]any{"u-l-1": {}},
+		summary: map[string]map[string]any{"u-lot-0001": {}},
+		chances: map[string]map[string]any{"u-lot-0001": {}},
+		draws:   map[string]map[string]any{"u-lot-0001": {}},
+		rewards: map[string]map[string]any{"u-lot-0001": {}},
 	}
-	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-l-1")}, &fakeUpstream{})
+	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-lot-0001")}, &fakeUpstream{})
 	svc.lotteryReader = fake
 	items := svc.LotteryOverview(context.Background())
 	if len(items) != 1 {
@@ -507,12 +507,12 @@ func TestLotteryEmptyUpstreamData(t *testing.T) {
 // TestLotteryHandlerShape 端到端：/api/activities/lottery JSON 形状与契约 §2.6 一致。
 func TestLotteryHandlerShape(t *testing.T) {
 	fake := &fakeLotteryUpstream{
-		summary: map[string]map[string]any{"u-l-1": {}},
-		chances: map[string]map[string]any{"u-l-1": {"chances": float64(1)}},
-		draws:   map[string]map[string]any{"u-l-1": {"total": float64(2)}},
-		rewards: map[string]map[string]any{"u-l-1": {"total": float64(0)}},
+		summary: map[string]map[string]any{"u-lot-0001": {}},
+		chances: map[string]map[string]any{"u-lot-0001": {"chances": float64(1)}},
+		draws:   map[string]map[string]any{"u-lot-0001": {"total": float64(2)}},
+		rewards: map[string]map[string]any{"u-lot-0001": {"total": float64(0)}},
 	}
-	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-l-1")}, &fakeUpstream{})
+	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-lot-0001")}, &fakeUpstream{})
 	svc.lotteryReader = fake
 	srv := httptest.NewServer(NewServer(svc, http.NotFoundHandler()).Handler())
 	defer srv.Close()

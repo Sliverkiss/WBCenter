@@ -47,7 +47,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/credits", s.credits)
 	mux.HandleFunc("GET /api/credits/{uid}", s.creditDetail)
 	mux.HandleFunc("GET /api/models", s.models)
+	mux.HandleFunc("GET /api/models/pricing", s.modelPricing)
 	mux.HandleFunc("GET /api/activities", s.activities)
+	mux.HandleFunc("GET /api/activities/lottery", s.lotteryOverview)
 	mux.HandleFunc("GET /api/scheduler-tasks", s.schedulerTasks)
 	mux.HandleFunc("GET /api/scheduler-tasks/{uid}/{taskID}", s.schedulerTaskDetail)
 	mux.HandleFunc("GET /api/mock-scheduler-tasks", s.mockSchedulerTasks)
@@ -210,8 +212,18 @@ func (s *Server) creditDetail(w http.ResponseWriter, r *http.Request) {
 func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": s.svc.Models(r.Context())})
 }
+
+// modelPricing 契约 §2.5：credits 描述串透传 + pricing_available 降级标记，恒 200。
+func (s *Server) modelPricing(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.svc.ModelPricing(r.Context()))
+}
 func (s *Server) activities(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": s.svc.Activities(r.Context())})
+}
+
+// lotteryOverview 契约 §2.6：抽奖概要只读聚合，单账号失败下沉 items[].error，恒 200。
+func (s *Server) lotteryOverview(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"items": s.svc.LotteryOverview(r.Context())})
 }
 func (s *Server) schedulerTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": s.svc.SchedulerTasks(r.Context()), "write_enabled": false, "note": "这是各 WorkBuddy 账号的云端定时任务。创建接口请求体尚未经过真实认证验证，当前保持只读。"})

@@ -705,11 +705,12 @@ func findPackageRows(v any) []map[string]any {
 // GrowthTask is deliberately loose because the reverse-engineered response is
 // not a stable public schema. Raw tokens and headers are never returned.
 type GrowthTask struct {
-	Code   string         `json:"code"`
-	Name   string         `json:"name"`
-	Status string         `json:"status"`
-	Reward float64        `json:"reward"`
-	Raw    map[string]any `json:"raw,omitempty"`
+	Code     string         `json:"code"`
+	Name     string         `json:"name"`
+	Status   string         `json:"status"`
+	Reward   float64        `json:"reward"`
+	TaskType string         `json:"task_type"`
+	Raw      map[string]any `json:"raw,omitempty"`
 }
 
 func (c *Client) GrowthTasks(a *authstore.Account) ([]GrowthTask, error) {
@@ -729,9 +730,70 @@ func (c *Client) GrowthTasks(a *authstore.Account) ([]GrowthTask, error) {
 		if code == "" && name == "" {
 			continue
 		}
-		out = append(out, GrowthTask{Code: code, Name: name, Status: firstText(row, "status", "state", "task_status"), Reward: firstFloat(row, "reward", "reward_credit", "rewardCredit"), Raw: row})
+		out = append(out, GrowthTask{
+			Code:     code,
+			Name:     name,
+			Status:   firstText(row, "status", "state", "task_status", "accept_status", "acceptStatus"),
+			Reward:   firstFloat(row, "reward", "reward_credit", "rewardCredit"),
+			TaskType: firstText(row, "task_type", "taskType", "type"),
+			Raw:      row,
+		})
 	}
 	return out, nil
+}
+
+// LotterySummary 获取抽奖玩法概要（growth 域，只读）。
+// 上游响应 schema 在 Apifox 导出中为空对象占位，字段名未经真实响应确认，
+// 因此返回原始 map 由控制层多候选键提取。
+func (c *Client) LotterySummary(a *authstore.Account) (map[string]any, error) {
+	return c.lotteryGet(a, "/activity/growth/lottery/summary")
+}
+
+// LotteryChances 获取当前可用抽奖机会数量（只读）。
+func (c *Client) LotteryChances(a *authstore.Account) (map[string]any, error) {
+	return c.lotteryGet(a, "/activity/growth/lottery/chances")
+}
+
+// LotteryDraws 分页获取抽奖历史（只读）。
+func (c *Client) LotteryDraws(a *authstore.Account, page, pageSize int) (map[string]any, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 50 {
+		pageSize = 5
+	}
+	return c.lotteryGet(a, fmt.Sprintf("/activity/growth/lottery/draws?page=%d&page_size=%d", page, pageSize))
+}
+
+// LotteryRewards 分页获取已获奖品（只读）。
+func (c *Client) LotteryRewards(a *authstore.Account, page, pageSize int) (map[string]any, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 50 {
+		pageSize = 5
+	}
+	return c.lotteryGet(a, fmt.Sprintf("/activity/growth/lottery/rewards?page=%d&page_size=%d", page, pageSize))
+}
+
+func (c *Client) lotteryGet(a *authstore.Account, path string) (map[string]any, error) {
+	data, err := c.growthJSON(a, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var decoded any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil, err
+	}
+	row, ok := decoded.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("上游抽奖响应格式异常")
+	}
+	// 常见信封 {code, msg, data}：下钻到 data 层（不存在时返回原 map）。
+	if child, ok := row["data"].(map[string]any); ok {
+		return child, nil
+	}
+	return row, nil
 }
 
 // ConsoleTasks reads the reverse-engineered task list in read-only mode.
