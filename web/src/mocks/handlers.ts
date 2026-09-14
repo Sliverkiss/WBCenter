@@ -26,11 +26,41 @@ const err = (status: number, error: string) => json({ error }, status)
 
 // 模拟会话状态：login 成功后置 true；resetMockState 在每用例间复位。
 let authed = true
+// E2E 持久化覆盖：浏览器 reload 会重置模块级 authed，dev 环境用 localStorage
+// 存会话态，保证 Playwright 能跨 reload 维持未登录态。test 环境不读不写该键。
+const OVERRIDE_KEY = 'msw:authed'
+function storageAuthed(): boolean | null {
+  try {
+    const v = globalThis.localStorage?.getItem(OVERRIDE_KEY)
+    if (v === '0') return false
+    if (v === '1') return true
+  } catch {
+    /* node test 环境无 localStorage */
+  }
+  return null
+}
+function isAuthed(): boolean {
+  return storageAuthed() ?? authed
+}
+// 翻转会话态：模块级 + localStorage 双写，浏览器 reload 后仍生效。
+export function setAuthed(v: boolean) {
+  authed = v
+  try {
+    globalThis.localStorage?.setItem(OVERRIDE_KEY, v ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
 // OAuth 轮询计数：start 时清零，驱动 waiting→waiting→success 序列。
 let oauthPollCount = 0
 export function resetMockState() {
   authed = true
   oauthPollCount = 0
+  try {
+    globalThis.localStorage?.removeItem(OVERRIDE_KEY)
+  } catch {
+    /* ignore */
+  }
   mockTasks = mockSchedulerTasks.map(t => ({ ...t }))
 }
 
@@ -40,36 +70,36 @@ let mockTasks: MockSchedulerTask[] = mockSchedulerTasks.map(t => ({ ...t }))
 
 export const handlers = [
   // ---- 会话 ----
-  http.get('/api/session', () => json({ ...sessionInfo, authenticated: authed })),
+  http.get('/api/session', () => json({ ...sessionInfo, authenticated: isAuthed() })),
   http.post('/api/login', async ({ request }) => {
     const body = (await request.json()) as { username?: string; password?: string }
     if (body.username === 'admin' && body.password === 'workbuddy') {
-      authed = true
+      setAuthed(true)
       return json({ ok: true })
     }
     return err(401, '用户名或密码错误')
   }),
   http.post('/api/logout', () => {
-    authed = false
+    setAuthed(false)
     return json({ ok: true })
   }),
 
   // ---- 概览与账号 ----
-  http.get('/api/overview', () => (authed ? json(overview) : unauthorized())),
-  http.get('/api/accounts', () => (authed ? json({ accounts, warnings: [] }) : unauthorized())),
-  http.get('/api/credits', () => (authed ? json({ items: credits }) : unauthorized())),
+  http.get('/api/overview', () => (isAuthed() ? json(overview) : unauthorized())),
+  http.get('/api/accounts', () => (isAuthed() ? json({ accounts, warnings: [] }) : unauthorized())),
+  http.get('/api/credits', () => (isAuthed() ? json({ items: credits }) : unauthorized())),
   http.get('/api/credits/:uid', ({ params }) => {
-    if (!authed) return unauthorized()
+    if (!isAuthed()) return unauthorized()
     return json({ items: credits.filter(c => c.uid === params.uid) })
   }),
 
   // ---- 模型与活动 ----
-  http.get('/api/models', () => (authed ? json({ items: models }) : unauthorized())),
-  http.get('/api/activities', () => (authed ? json({ items: activities }) : unauthorized())),
+  http.get('/api/models', () => (isAuthed() ? json({ items: models }) : unauthorized())),
+  http.get('/api/activities', () => (isAuthed() ? json({ items: activities }) : unauthorized())),
 
   // ---- 云端定时任务（只读） ----
   http.get('/api/scheduler-tasks', () =>
-    authed
+    isAuthed()
       ? json({
           items: schedulerTasks,
           write_enabled: false,
@@ -78,7 +108,7 @@ export const handlers = [
       : unauthorized(),
   ),
   http.get('/api/scheduler-tasks/:uid/:taskID', ({ params }) => {
-    if (!authed) return unauthorized()
+    if (!isAuthed()) return unauthorized()
     const task = schedulerTasks.find(t => t.uid === params.uid && t.id === params.taskID)
     if (!task) return err(502, '账号云端定时任务详情读取不可用')
     return json({ item: { id: task.id, name: task.name, status: task.status } })
@@ -86,12 +116,12 @@ export const handlers = [
 
   // ---- 本地 Mock 定时任务 CRUD ----
   http.get('/api/mock-scheduler-tasks', () =>
-    authed
+    isAuthed()
       ? json({ items: mockTasks, mode: 'mock', note: '本地 Mock 骨架：仅写入控制台 data/state.json，不会提交到 WorkBuddy 上游。' })
       : unauthorized(),
   ),
   http.post('/api/mock-scheduler-tasks', async ({ request }) => {
-    if (!authed) return unauthorized()
+    if (!isAuthed()) return unauthorized()
     const input = (await request.json()) as MockSchedulerTaskInput
     if (!input.name || input.name.length > 100) return err(400, '任务名称需为 1 至 100 个字符')
     const now = '2026-09-14T09:00:00+08:00'
@@ -101,7 +131,7 @@ export const handlers = [
     return json(task, 201)
   }),
   http.put('/api/mock-scheduler-tasks/:id', async ({ params, request }) => {
-    if (!authed) return unauthorized()
+    if (!isAuthed()) return unauthorized()
     const input = (await request.json()) as MockSchedulerTaskInput
     const task = mockTasks.find(t => t.id === params.id)
     if (!task) return err(404, 'Mock 任务不存在')
@@ -110,30 +140,30 @@ export const handlers = [
     return json(updated)
   }),
   http.delete('/api/mock-scheduler-tasks/:id', ({ params }) => {
-    if (!authed) return unauthorized()
+    if (!isAuthed()) return unauthorized()
     if (!mockTasks.some(t => t.id === params.id)) return err(404, 'Mock 任务不存在')
     mockTasks = mockTasks.filter(t => t.id !== params.id)
     return json({ ok: true })
   }),
 
   // ---- 本地自动化 ----
-  http.get('/api/automations', () => (authed ? json({ items: automations, runs }) : unauthorized())),
+  http.get('/api/automations', () => (isAuthed() ? json({ items: automations, runs }) : unauthorized())),
   http.put('/api/automations/:id', async ({ params, request }) => {
-    if (!authed) return unauthorized()
+    if (!isAuthed()) return unauthorized()
     const a = automations.find(x => x.id === params.id)
     if (!a) return err(404, '自动化任务不存在')
     const input = (await request.json()) as { enabled?: boolean; every_minutes?: number }
     return json({ ...a, enabled: Boolean(input.enabled), every_minutes: Number(input.every_minutes ?? a.every_minutes) })
   }),
   http.post('/api/automations/:id/run', ({ params }) => {
-    if (!authed) return unauthorized()
+    if (!isAuthed()) return unauthorized()
     if (!automations.some(x => x.id === params.id)) return err(404, '自动化任务不存在')
     return json({ ok: true, message: '成功 1，失败 0' })
   }),
 
   // ---- 账号动作 ----
   http.post('/api/accounts/:uid/actions/:action', ({ params }) => {
-    if (!authed) return unauthorized()
+    if (!isAuthed()) return unauthorized()
     if (!['checkin', 'travel', 'refresh'].includes(String(params.action))) return err(400, '不支持的动作')
     return json({ ok: true, message: '成功 1，失败 0' })
   }),
@@ -155,10 +185,10 @@ export const handlers = [
   }),
 
   // ---- 新增端点（M2+ 契约，后端未实现，mock 先行） ----
-  http.post('/api/probe', () => (authed ? json(probeResponse) : unauthorized())),
-  http.get('/api/stats/summary', () => (authed ? json(statsSummary) : unauthorized())),
+  http.post('/api/probe', () => (isAuthed() ? json(probeResponse) : unauthorized())),
+  http.get('/api/stats/summary', () => (isAuthed() ? json(statsSummary) : unauthorized())),
   http.post('/api/batch-actions', async ({ request }) => {
-    if (!authed) return unauthorized()
+    if (!isAuthed()) return unauthorized()
     const body = (await request.json()) as { action?: string; uids?: string[] }
     if (!body.action || !['checkin', 'travel', 'refresh'].includes(body.action)) return err(400, '不支持的动作')
     // uids 指定子集时按子集过滤样本；缺省返回全部四类样本。
@@ -167,7 +197,7 @@ export const handlers = [
       : batchActionResponse.results
     return json({ results })
   }),
-  http.get('/api/logs', () => (authed ? json(logs) : unauthorized())),
-  http.get('/api/models/pricing', () => (authed ? json(modelPricing) : unauthorized())),
-  http.get('/api/activities/lottery', () => (authed ? json(lottery) : unauthorized())),
+  http.get('/api/logs', () => (isAuthed() ? json(logs) : unauthorized())),
+  http.get('/api/models/pricing', () => (isAuthed() ? json(modelPricing) : unauthorized())),
+  http.get('/api/activities/lottery', () => (isAuthed() ? json(lottery) : unauthorized())),
 ]

@@ -30,6 +30,8 @@ internal/webui/dist/assets/
 shot.sh
 web/tsconfig.tsbuildinfo
 web/coverage/
+web/test-results/
+web/playwright-report/
 shots/
 
 # MSW worker 由 `npx msw init` 生成，可随时重建
