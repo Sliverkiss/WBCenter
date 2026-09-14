@@ -29,4 +29,8 @@ internal/webui/dist/assets/
 .chrome-profile/
 shot.sh
 web/tsconfig.tsbuildinfo
+web/coverage/
 shots/
+
+# MSW worker 由 `npx msw init` 生成，可随时重建
+web/public/mockServiceWorker.js
