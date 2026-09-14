@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
+import { useTheme } from './hooks/useTheme'
 
 type Page = 'overview' | 'accounts' | 'credits' | 'models' | 'automation' | 'scheduler' | 'activities' | 'oauth'
 type Any = Record<string, unknown>
@@ -16,6 +17,7 @@ export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [page, setPage] = useState<Page>('overview')
   const [notice, setNotice] = useState('')
+  const { theme, toggle } = useTheme()
 
   const check = useCallback(async () => {
     try { const s = await get<{ authenticated: boolean }>('/api/session'); setAuthed(s.authenticated) } catch { setAuthed(false) }
@@ -33,7 +35,7 @@ export default function App() {
     <aside className="sidebar">
       <div className="wordmark"><b>WORK<br />BUDDY<span>›</span></b><small>LOCAL CONTROL ROOM</small></div>
       <nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'nav active' : 'nav'} onClick={() => setPage(id)}><i>{icon}</i>{label}</button>)}</nav>
-      <div className="side-bottom"><span>第三方本地控制台</span><button className="link" onClick={() => void post('/api/logout').then(() => setAuthed(false))}>退出登录</button></div>
+      <div className="side-bottom"><button className="link" onClick={toggle}>{theme === 'dark' ? '切换为浅色主题' : '切换为暗色主题'}</button><span>第三方本地控制台</span><button className="link" onClick={() => void post('/api/logout').then(() => setAuthed(false))}>退出登录</button></div>
     </aside>
     <main className="main">
       {notice && <div className="notice">{notice}<button onClick={() => setNotice('')}>×</button></div>}

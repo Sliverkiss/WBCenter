@@ -1,0 +1,61 @@
+/* 设计 token：浅色为基线（与改造前 styles.css 逐字一致），暗色用深灰蓝底 + 薄荷绿点缀，不引入新色相。 */
+:root {
+  /* 品牌与文字 */
+  --ink: #101010;
+  --muted: #707070;
+  --line: #e9e9e6;
+  --mint: #54c7ad;
+  --soft: #effaf7;
+  --paper: #fff;
+  --radius: 18px;
+
+  /* 推导色（原样式中散落的字面色，收敛为变量；浅色值与原样逐字一致） */
+  --bg: #fff;
+  --nav-text: #5d5d5d;
+  --nav-hover-bg: #f6f6f3;
+  --nav-active-bg: #e8f8f3;
+  --badge-bg: #e8f8f3;
+  --badge-text: #147c67;
+  --badge-bad-bg: #fff0ee;
+  --badge-bad-text: #b23d32;
+  --notice-bg: #fff7dd;
+  --notice-line: #f0df9c;
+  --notice-neutral-bg: #fafaf8;
+  --error-text: #a8362d;
+  --error-bg: #fff4f2;
+  --error-line: #f3d3cf;
+  --quick-hover: #188b74;
+  --switch-off: #d3d3cf;
+  --login-bg: #f7f7f4;
+  --input-bg: #fff;
+  --on-ink: #fff;
+}
+
+[data-theme='dark'] {
+  /* 深灰蓝底 + 薄荷绿点缀；薄荷绿 #54c7ad 保持不变 */
+  --ink: #e6edf3;
+  --muted: #8b949e;
+  --line: #30363d;
+  --soft: #12261f;
+  --paper: #161b22;
+  --bg: #0d1117;
+
+  --nav-text: #9aa4b0;
+  --nav-hover-bg: #1c2129;
+  --nav-active-bg: #12261f;
+  --badge-bg: #12261f;
+  --badge-text: #54c7ad;
+  --badge-bad-bg: #2d1a17;
+  --badge-bad-text: #e08b81;
+  --notice-bg: #2a2410;
+  --notice-line: #4d4423;
+  --notice-neutral-bg: #161b22;
+  --error-text: #e08b81;
+  --error-bg: #2d1a17;
+  --error-line: #4d2620;
+  --quick-hover: #54c7ad;
+  --switch-off: #3a4048;
+  --login-bg: #0d1117;
+  --input-bg: #0d1117;
+  --on-ink: #101010;
+}
