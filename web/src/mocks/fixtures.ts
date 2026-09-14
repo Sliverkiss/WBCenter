@@ -124,7 +124,7 @@ export const probeResponse: ProbeResponse = {
       credits: { current: 350, today_remaining: 0 },
       travel: { status: 'idle' },
     },
-    { uid: 'u-1003', nickname: '阿蓝', ok: false, error: '上游会话失效（12153）' },
+    { uid: 'u-1003', nickname: '阿蓝', ok: false, session_dead: true, error: '上游会话失效（12153）' },
     { uid: 'u-1004', nickname: '阿绿', ok: false, error: '上游积分概要查询失败' },
   ],
 }

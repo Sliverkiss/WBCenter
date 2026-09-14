@@ -411,11 +411,12 @@
 | 字段 | 类型 | 语义 |
 |---|---|---|
 | results[].ok | bool | 该账号探测是否整体成功；失败时 error 必填、其余子对象缺省 |
-| results[].checkin.checked_in | bool | 今日是否已签到 |
-| results[].checkin.streak_days | number | 连续签到天数 |
+| results[].session_dead | bool | 该账号本次探测被上游判 12153 会话失效（前端据此渲染徽标） |
+| results[].checkin.checked_in | bool | 今日是否已签到。**数据来源标注**：上游无独立「查签到」只读端点（实测结论链 Phase 3-B），此值来自面板本地自动化任务运行记录（最近一次 checkin 动作是否成功）；面板未运行过 checkin 时 checked_in=false、streak_days=0，为占位而非上游事实 |
+| results[].checkin.streak_days | number | 连续签到天数。同上数据来源标注，当前实现恒 0 占位 |
 | results[].credits.current / today_remaining | number | 探测时刻的积分快照 |
-| results[].travel.status | string | 猫猫状态机：`idle` / `traveling` / `arrived` |
-| results[].travel.location / departed_at / arrive_at | （可省略） | idle 时可缺省 |
+| results[].travel.status | string | 猫猫状态机：`idle` / `traveling` / `arrived`（来自上游 `state` 字段原值） |
+| results[].travel.location / departed_at / arrive_at | （可省略） | ⚠️ **上游未提供**：实测 `GET /activity/growth/buddy/travel/status` 响应只含 `state/daily_limit_reached/record_id/reward_credit`（见 `internal/upstream/client.go` TravelState 与 Apifox 导出 growth 域），无地点与起止时间。本契约保留字段以备上游日后透出，当前后端不返回这些字段，前端按缺失降级渲染 |
 | results[].error | string（可省略） | 该账号失败原因（逐账号降级，不拖垮整批） |
 
 **错误：** 401 未登录；403 只读模式。整批请求本身恒 200，失败下沉到 results[].error。

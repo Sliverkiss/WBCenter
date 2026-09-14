@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -57,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/automations/{id}", s.automationPut)
 	mux.HandleFunc("POST /api/automations/{id}/run", s.automationRun)
 	mux.HandleFunc("POST /api/accounts/{uid}/actions/{action}", s.accountAction)
+	mux.HandleFunc("POST /api/probe", s.probe)
 	mux.HandleFunc("POST /api/oauth/start", s.oauthStart)
 	mux.HandleFunc("POST /api/oauth/{id}/poll", s.oauthPoll)
 	mux.Handle("/", s.static)
@@ -191,7 +193,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 			enabled++
 		}
 	}
-	writeJSON(w, 200, map[string]any{"accounts": len(accounts), "healthy": active, "expired": len(accounts) - active, "automations": enabled, "warnings": warns, "updated_at": time.Now()})
+	writeJSON(w, 200, map[string]any{"accounts": len(accounts), "healthy": active, "expired": len(accounts) - active, "automations": enabled, "session_dead": s.svc.SessionDeadCount(), "warnings": warns, "updated_at": time.Now()})
 }
 func (s *Server) accounts(w http.ResponseWriter, r *http.Request) {
 	items, warns := s.svc.Accounts()
@@ -376,6 +378,23 @@ func (s *Server) accountAction(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "message": msg})
 }
+// probe 触发全量探测。30s 超时是「全部账号 + 受控并发 6 + 单账号最坏上游往返」的
+// 经验上限；超时未完成的子任务在 ctx 取消时由 Probe 自行降级。
+func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
+	if s.svc.Config().ReadOnly {
+		jsonErr(w, http.StatusForbidden, "服务端已开启只读模式")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	results, err := s.svc.Probe(ctx)
+	if err != nil {
+		jsonErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
 func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Region string `json:"region"`

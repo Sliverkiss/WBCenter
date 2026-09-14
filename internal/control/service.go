@@ -79,6 +79,11 @@ type Service struct {
 	mu           sync.Mutex
 	accountLocks map[string]*sync.Mutex
 	logins       map[string]loginFlow
+	// prober 用于测试替换 Probe 的上游调用；生产为 nil，Probe 走 s.up。
+	prober ProbeUpstream
+	// lastProbe 是最近一次 POST /api/probe 的聚合结果；供 /api/overview 的
+	// session_dead 卡片读取，未运行过探测时为空。
+	lastProbe []ProbeResult
 }
 
 func NewService(cfg Config, store *authstore.Store, up *upstream.Client, state *State) *Service {

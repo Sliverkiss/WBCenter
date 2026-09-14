@@ -77,7 +77,7 @@ func newProbeService(t *testing.T, accounts []*authstore.Account, up ProbeUpstre
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{Username: "admin", Password: "x", AuthDir: dir + "/auths", DataDir: dir + "/data", TimeoutSeconds: 5, Timezone: "Asia/Shanghai"}
+	cfg := Config{Username: "admin", Password: "test-password", AuthDir: dir + "/auths", DataDir: dir + "/data", TimeoutSeconds: 5, Timezone: "Asia/Shanghai"}
 	svc := NewService(cfg, store, upstream.New(time.Second), state)
 	svc.prober = up
 	return svc
@@ -141,13 +141,13 @@ func TestProbeAggregatesHealthyAccount(t *testing.T) {
 func TestProbeSingleAccountFailureDoesNotStopOthers(t *testing.T) {
 	fake := &fakeUpstream{
 		userResource: func(a *authstore.Account) (*upstream.Credits, error) {
-			if a.UID == "u-bad" {
+			if a.UID == "u-bad-01" {
 				return nil, &upstream.Error{Kind: upstream.ErrServer, Status: 503, Msg: "upstream down"}
 			}
 			return &upstream.Credits{Remain: 100}, nil
 		},
 	}
-	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-good"), healthyAccount("u-bad")}, fake)
+	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-good-1"), healthyAccount("u-bad-01")}, fake)
 	results, err := svc.Probe(context.Background())
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -158,9 +158,9 @@ func TestProbeSingleAccountFailureDoesNotStopOthers(t *testing.T) {
 	var good, bad *ProbeResult
 	for i := range results {
 		switch results[i].UID {
-		case "u-good":
+		case "u-good-1":
 			good = &results[i]
-		case "u-bad":
+		case "u-bad-01":
 			bad = &results[i]
 		}
 	}
@@ -210,7 +210,7 @@ func TestProbeConcurrencyIsBounded(t *testing.T) {
 	}
 	accs := make([]*authstore.Account, 0, n)
 	for i := 0; i < n; i++ {
-		accs = append(accs, healthyAccount("u-"+string(rune('a'+i))))
+		accs = append(accs, healthyAccount("u-acct-"+string(rune('a'+i))))
 	}
 	svc := newProbeService(t, accs, fake)
 	if _, err := svc.Probe(context.Background()); err != nil {
@@ -233,7 +233,7 @@ func TestProbeContextCancelled(t *testing.T) {
 			return &upstream.Credits{}, nil
 		},
 	}
-	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-1"), healthyAccount("u-2")}, fake)
+	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-ctx-01"), healthyAccount("u-ctx-02")}, fake)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	start := time.Now()
@@ -294,5 +294,48 @@ func TestProbeHandlerReadOnly(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", res.StatusCode)
+	}
+}
+
+// TestOverviewSessionDeadReflectsLastProbe /api/overview 的 session_dead 应来自最近一次探测。
+func TestOverviewSessionDeadReflectsLastProbe(t *testing.T) {
+	fake := &fakeUpstream{
+		userResource: func(a *authstore.Account) (*upstream.Credits, error) {
+			if a.UID == "u-dead-01" {
+				return nil, &upstream.Error{Kind: upstream.ErrSessionDead, Status: 401, Msg: "code=12153"}
+			}
+			return &upstream.Credits{Remain: 1}, nil
+		},
+	}
+	svc := newProbeService(t, []*authstore.Account{healthyAccount("u-good-1"), healthyAccount("u-dead-01")}, fake)
+
+	// 探测前 overview.session_dead 应为 0。
+	if got := svc.SessionDeadCount(); got != 0 {
+		t.Fatalf("探测前 session_dead = %d, want 0", got)
+	}
+	if _, err := svc.Probe(context.Background()); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if got := svc.SessionDeadCount(); got != 1 {
+		t.Fatalf("探测后 session_dead = %d, want 1", got)
+	}
+
+	// 端到端：走 /api/overview 路由。
+	srv := httptest.NewServer(NewServer(svc, http.NotFoundHandler()).Handler())
+	defer srv.Close()
+	cookie := login(t, srv)
+	res := request(t, srv.Client(), http.MethodGet, srv.URL+"/api/overview", nil, cookie, false)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("overview status = %d", res.StatusCode)
+	}
+	var body struct {
+		SessionDead int `json:"session_dead"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SessionDead != 1 {
+		t.Errorf("overview.session_dead = %d, want 1", body.SessionDead)
 	}
 }

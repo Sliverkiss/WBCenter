@@ -246,6 +246,8 @@ export interface ProbeResult {
   uid: string
   nickname: string
   ok: boolean
+  /** 该账号本次探测被上游判 12153 会话失效。 */
+  session_dead?: boolean
   checkin?: {
     checked_in: boolean
     streak_days: number
