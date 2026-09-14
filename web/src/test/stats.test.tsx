@@ -42,8 +42,8 @@ test('Stats 渲染汇总卡：总积分/今日发放/已用/剩余', async () =>
   expect(screen.getByText('今日发放额度')).toBeInTheDocument()
   expect(screen.getByText('今日已用额度')).toBeInTheDocument()
   expect(screen.getByText('今日剩余额度')).toBeInTheDocument()
-  // fixture: current=1550, alloc=100, consumed=40, remaining=60
-  expect(screen.getByText('1550')).toBeInTheDocument()
+  // fixture: current=1550, alloc=100, consumed=40, remaining=60（fmt 千分位）
+  expect(screen.getByText((1550).toLocaleString('zh-CN'))).toBeInTheDocument()
 })
 
 test('Stats 渲染账号状态分布与签到统计', async () => {

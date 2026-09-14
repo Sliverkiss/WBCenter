@@ -15,10 +15,12 @@ import { Automation } from './pages/Automation'
 import { Scheduler } from './pages/Scheduler'
 import { Activities } from './pages/Activities'
 import { OAuth } from './pages/OAuth'
+import { Stats } from './pages/Stats'
 
 const NAV: [Page, string, string][] = [
   ['overview', '概览', '⌁'], ['accounts', '账号管理', '◉'], ['credits', '积分管理', '＋'],
-  ['models', '模型管理', '◇'], ['automation', '自动化管理', '◷'], ['scheduler', '账号云端定时任务', '☁'],
+  ['models', '模型管理', '◇'], ['stats', '统计分析', '∿'], ['automation', '自动化管理', '◷'],
+  ['scheduler', '账号云端定时任务', '☁'],
   ['activities', '活动管理', '✦'], ['oauth', '添加账号', '→'],
 ]
 
@@ -57,6 +59,7 @@ export default function App() {
         {page === 'accounts' && <Accounts onNotice={setNotice} />}
         {page === 'credits' && <Credits />}
         {page === 'models' && <Models />}
+        {page === 'stats' && <Stats />}
         {page === 'automation' && <Automation onNotice={setNotice} />}
         {page === 'scheduler' && <Scheduler />}
         {page === 'activities' && <Activities />}
