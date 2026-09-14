@@ -125,7 +125,7 @@ describe('isSessionInfo / isOverviewData / isAutomation', () => {
 
   test('isOverviewData 正例与负例', () => {
     expect(
-      isOverviewData({ accounts: 5, healthy: 4, expired: 1, automations: 2, warnings: [], updated_at: '2026-09-14T08:30:00+08:00' }),
+      isOverviewData({ accounts: 5, healthy: 4, expired: 1, automations: 2, session_dead: 0, warnings: [], updated_at: '2026-09-14T08:30:00+08:00' }),
     ).toBe(true)
     expect(isOverviewData({ accounts: '5', healthy: 4, expired: 1, automations: 2, warnings: [], updated_at: '' })).toBe(false)
     expect(isOverviewData({ accounts: 5, healthy: 4, expired: 1, automations: 2, warnings: 'none', updated_at: '' })).toBe(false)
