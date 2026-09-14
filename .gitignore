@@ -1,6 +1,8 @@
 # 运行时数据与本地构建产物
 wbgui
 /config.json
+/control-center.json
+/.env
 /testenv/
 /shots/
 /.chrome-profile/
