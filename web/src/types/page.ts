@@ -9,6 +9,7 @@ export type Page =
   | 'activities'
   | 'oauth'
   | 'stats'
+  | 'logs'
 
 export const PAGES: Page[] = [
   'overview',
@@ -20,4 +21,5 @@ export const PAGES: Page[] = [
   'activities',
   'oauth',
   'stats',
+  'logs',
 ]

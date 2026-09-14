@@ -16,12 +16,13 @@ import { Scheduler } from './pages/Scheduler'
 import { Activities } from './pages/Activities'
 import { OAuth } from './pages/OAuth'
 import { Stats } from './pages/Stats'
+import { Logs } from './pages/Logs'
 
 const NAV: [Page, string, string][] = [
   ['overview', '概览', '⌁'], ['accounts', '账号管理', '◉'], ['credits', '积分管理', '＋'],
   ['models', '模型管理', '◇'], ['stats', '统计分析', '∿'], ['automation', '自动化管理', '◷'],
   ['scheduler', '账号云端定时任务', '☁'],
-  ['activities', '活动管理', '✦'], ['oauth', '添加账号', '→'],
+  ['activities', '活动管理', '✦'], ['oauth', '添加账号', '→'], ['logs', '运行日志', '≡'],
 ]
 
 export default function App() {
@@ -64,6 +65,7 @@ export default function App() {
         {page === 'scheduler' && <Scheduler />}
         {page === 'activities' && <Activities />}
         {page === 'oauth' && <OAuth onNotice={setNotice} onDone={() => navigate('accounts')} />}
+        {page === 'logs' && <Logs />}
       </main>
     </div>
   )

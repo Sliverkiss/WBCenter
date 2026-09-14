@@ -1,11 +1,16 @@
 // M5 OAuth 页升级测试：完整三步流（发起→授权链接→轮询状态机）+ 超时倒计时 + 区域路由 + 重试。
+// 状态机本身（pollOnce）做无定时器单测；组件层用短间隔假定时器驱动 UI 流转。
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, test, vi } from 'vitest'
-import { OAuth } from '../pages/OAuth'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { OAuth, pollOnce } from '../pages/OAuth'
 import { server } from '../mocks/server'
 
 const noop = () => undefined
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('OAuth 页（M5 完整流）', () => {
   test('发起后展示授权链接（新窗口打开）与轮询中状态', async () => {
@@ -18,17 +23,35 @@ describe('OAuth 页（M5 完整流）', () => {
     expect(await screen.findByText(/等待授权/)).toBeInTheDocument()
   })
 
-  test('轮询 waiting→waiting→success 后展示账号信息并回调 onDone', async () => {
+  test('轮询 waiting→waiting→success 状态机序列（pollOnce 无定时器驱动）', async () => {
+    // 精确控制序列：waiting→waiting→success（模拟真实设备授权节奏）。
+    let calls = 0
+    server.use(
+      http.post('/api/oauth/:id/poll', () => {
+        calls++
+        if (calls < 3) return HttpResponse.json({ status: 'waiting' })
+        return HttpResponse.json({ status: 'success', uid: 'u-1003', nickname: '新账号' })
+      }),
+    )
+    expect(await pollOnce('mock-flow-1')).toBeNull() // waiting
+    expect(await pollOnce('mock-flow-1')).toBeNull() // waiting
+    const final = await pollOnce('mock-flow-1')
+    expect(final).toEqual({ kind: 'success', uid: 'u-1003', nickname: '新账号' })
+    expect(calls).toBe(3)
+  })
+
+  test('成功终态展示账号信息并回调 onDone', async () => {
+    server.use(
+      http.post('/api/oauth/:id/poll', () => HttpResponse.json({ status: 'success', uid: 'u-1003', nickname: '新账号' })),
+    )
     const onDone = vi.fn()
-    const onNotice = vi.fn()
-    render(<OAuth onNotice={onNotice} onDone={onDone} />)
+    render(<OAuth onNotice={noop} onDone={onDone} />)
     fireEvent.click(screen.getByRole('button', { name: /发起 OAuth 授权/ }))
-    // 默认 MSW 序列：waiting→waiting→success（u-1003 新账号）。
-    expect(await screen.findByText(/授权成功/), { timeout: 15000 }).toBeInTheDocument()
+    expect(await screen.findByText(/授权成功/)).toBeInTheDocument()
     expect(screen.getByText(/新账号/)).toBeInTheDocument()
     expect(screen.getByText(/u-1003/)).toBeInTheDocument()
     await waitFor(() => expect(onDone).toHaveBeenCalled())
-  }, 20000)
+  })
 
   test('轮询 error 终态展示错误文案与重试按钮', async () => {
     server.use(
@@ -59,7 +82,8 @@ describe('OAuth 页（M5 完整流）', () => {
     )
     render(<OAuth onNotice={noop} onDone={noop} />)
     fireEvent.click(screen.getByRole('button', { name: /发起 OAuth 授权/ }))
-    expect(await screen.findByText(/授权超时/)).toBeInTheDocument()
+    // badge 与消息均含「授权超时」，至少一处可见。
+    await waitFor(() => expect(screen.getAllByText(/授权超时/).length).toBeGreaterThan(0))
   })
 
   test('轮询中展示 5 分钟倒计时', async () => {
@@ -83,10 +107,13 @@ describe('OAuth 页（M5 完整流）', () => {
 
   test('区域选择带说明文案（中国大陆/国际版）', () => {
     render(<OAuth onNotice={noop} onDone={noop} />)
-    expect(screen.getByText(/中国大陆/)).toBeInTheDocument()
-    expect(screen.getByText(/国际版/)).toBeInTheDocument()
-    // 说明文案：两个区域的差异提示。
+    // 下拉选项。
+    expect(screen.getByRole('option', { name: '中国大陆' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '国际版' })).toBeInTheDocument()
+    // 说明文案：默认区域（cn）的域名提示。
     expect(screen.getByText(/copilot\.tencent\.com/)).toBeInTheDocument()
+    // 切到国际版后说明文案切换为 workbuddy.ai。
+    fireEvent.change(screen.getByLabelText(/账号区域/), { target: { value: 'global' } })
     expect(screen.getByText(/workbuddy\.ai/)).toBeInTheDocument()
   })
 

@@ -111,7 +111,7 @@ export const pollOAuth = (id: string) => post<OAuthPollResponse>(`/api/oauth/${e
 export const startProbe = () => post<ProbeResponse>('/api/probe')
 export const getStatsSummary = () => get<StatsSummary>('/api/stats/summary')
 export const runBatchAction = (input: BatchActionInput) => post<BatchActionResponse>('/api/batch-actions', input)
-export const getLogs = () => get<LogsResponse>('/api/logs')
+export const getLogs = (limit = 100) => get<LogsResponse>(`/api/logs?limit=${limit}`)
 export const getModelPricing = () => get<ModelPricingResponse>('/api/models/pricing')
 export const getLottery = () => get<LotteryResponse>('/api/activities/lottery')
 
