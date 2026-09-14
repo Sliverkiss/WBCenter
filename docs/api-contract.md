@@ -87,6 +87,7 @@
   "healthy": 4,
   "expired": 1,
   "automations": 2,
+  "session_dead": 1,
   "warnings": ["账号文件 alice.json 读取失败，已跳过"],
   "updated_at": "2026-09-14T08:30:00+08:00"
 }
@@ -98,6 +99,7 @@
 | healthy | number | Token 未过期账号数 |
 | expired | number | Token 已过期账号数 |
 | automations | number | 已启用的本地自动化任务数 |
+| session_dead | number | 最近一次全量探测中被判 12153 会话失效的账号数（未运行过探测时为 0） |
 | warnings | string[] | auths 目录读取告警（可空数组） |
 | updated_at | string(时间) | 响应生成时间 |
 

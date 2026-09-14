@@ -24,16 +24,20 @@ export const sessionInfo: SessionInfo = {
   timezone: 'Asia/Shanghai',
 }
 
+// 四类账号样本：健康 / Token 即将过期（7 天预警） / 12153 会话死 / 上游失败。
 export const accounts: Account[] = [
   { uid: 'u-1001', nickname: '阿明', domain: 'copilot.tencent.com', expires_at: 1760000000, expired: false, needs_refresh: false },
-  { uid: 'u-1002', nickname: '阿红', domain: 'copilot.tencent.com', expires_at: 1700000000, expired: true, needs_refresh: true },
+  { uid: 'u-1002', nickname: '阿红', domain: 'copilot.tencent.com', expires_at: 1758500000, expired: false, needs_refresh: true },
+  { uid: 'u-1003', nickname: '阿蓝', domain: 'www.workbuddy.ai', expires_at: 1700000000, expired: true, needs_refresh: true },
+  { uid: 'u-1004', nickname: '阿绿', domain: 'copilot.tencent.com', expires_at: 1760000000, expired: false, needs_refresh: false },
 ]
 
 export const overview: OverviewData = {
-  accounts: 2,
-  healthy: 1,
+  accounts: 4,
+  healthy: 3,
   expired: 1,
   automations: 1,
+  session_dead: 1,
   warnings: [],
   updated_at: '2026-09-14T08:30:00+08:00',
 }
@@ -101,6 +105,7 @@ export const runs: RunRecord[] = [
   { at: '2026-09-14T08:00:00+08:00', action: 'activity_probe', ok: true, message: '已探测 1 条活动任务' },
 ]
 
+// 探测结果覆盖四类样本：健康（旅行中）、Token 临期（已签到）、12153 会话死、上游失败。
 export const probeResponse: ProbeResponse = {
   results: [
     {
@@ -109,9 +114,18 @@ export const probeResponse: ProbeResponse = {
       ok: true,
       checkin: { checked_in: true, streak_days: 7 },
       credits: { current: 1200, today_remaining: 60 },
-      travel: { status: 'traveling', location: '杭州', departed_at: '2026-09-14T06:00:00+08:00', arrive_at: '2026-09-14T18:00:00+08:00' },
+      travel: { status: 'traveling', location: '古镇客栈', departed_at: '2026-09-14T06:00:00+08:00', arrive_at: '2026-09-14T18:00:00+08:00' },
     },
-    { uid: 'u-1002', nickname: '阿红', ok: false, error: '上游会话失效（12153）' },
+    {
+      uid: 'u-1002',
+      nickname: '阿红',
+      ok: true,
+      checkin: { checked_in: false, streak_days: 0 },
+      credits: { current: 350, today_remaining: 0 },
+      travel: { status: 'idle' },
+    },
+    { uid: 'u-1003', nickname: '阿蓝', ok: false, error: '上游会话失效（12153）' },
+    { uid: 'u-1004', nickname: '阿绿', ok: false, error: '上游积分概要查询失败' },
   ],
 }
 

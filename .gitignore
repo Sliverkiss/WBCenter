@@ -34,3 +34,6 @@ shots/
 
 # MSW worker 由 `npx msw init` 生成，可随时重建
 web/public/mockServiceWorker.js
+
+# 本地执行体工作目录与里程碑报告（不入库）
+.claude/

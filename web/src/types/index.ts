@@ -41,6 +41,8 @@ export interface OverviewData {
   healthy: number
   expired: number
   automations: number
+  /** 最近一次全量探测中被判 12153 会话失效的账号数（未运行过探测时为 0）。 */
+  session_dead: number
   warnings: string[]
   updated_at: string
 }
@@ -375,6 +377,7 @@ export function isOverviewData(x: unknown): x is OverviewData {
     isNum(x.healthy) &&
     isNum(x.expired) &&
     isNum(x.automations) &&
+    isNum(x.session_dead) &&
     Array.isArray(x.warnings) &&
     (x.warnings as unknown[]).every(isStr) &&
     isStr(x.updated_at)
