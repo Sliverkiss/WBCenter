@@ -1,58 +1,30 @@
-# --- OS / Editor ---
+# 运行时数据与本地构建产物
+wbgui
+/config.json
+/testenv/
+/shots/
+/.chrome-profile/
+
+# 运行时数据目录：含账号凭证、配置备份、面板登录凭据（绝不能入库）
+/data/
+
+# 前端依赖与构建产物（构建产物由 Dockerfile 生成，不入库）
+web/node_modules/
+web/dist/
+internal/webui/dist/assets/
+
+# 编辑器 / 系统
 .DS_Store
-Thumbs.db
 *.swp
-*.swo
 .idea/
 .vscode/
-*.sublime-*
 
-# --- Logs & temp ---
-*.log
-tmp/
-temp/
-.cache/
+# 本地代理工作目录与工具链
+.workbuddy-ai/
+.playwright-cli/
 
-# --- Environment & secrets ---
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-secrets/
-
-# --- Python ---
-__pycache__/
-*.py[cod]
-*.egg-info/
-.eggs/
-build/
-dist/
-.venv/
-venv/
-.python-version
-
-# --- Node ---
-node_modules/
-npm-debug.log*
-yarn-error.log*
-
-# --- Go ---
-*.exe
-*.test
-*.out
-bin/
-
-# --- Java ---
-target/
-*.class
-*.jar
-!gradle-wrapper.jar
-
-# --- Docker ---
-docker-compose.override.yml
-
-# --- Misc archives ---
-*.zip
-*.tar.gz
-*.7z
+# 测试临时产物
+.chrome-profile/
+shot.sh
+web/tsconfig.tsbuildinfo
+shots/
