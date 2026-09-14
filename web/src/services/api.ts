@@ -13,6 +13,7 @@ import type {
   CreditsResponse,
   ErrorEnvelope,
   LogsResponse,
+  LotteryResponse,
   MockSchedulerTask,
   MockSchedulerTaskInput,
   MockSchedulerTasksResponse,
@@ -112,6 +113,7 @@ export const getStatsSummary = () => get<StatsSummary>('/api/stats/summary')
 export const runBatchAction = (input: BatchActionInput) => post<BatchActionResponse>('/api/batch-actions', input)
 export const getLogs = () => get<LogsResponse>('/api/logs')
 export const getModelPricing = () => get<ModelPricingResponse>('/api/models/pricing')
+export const getLottery = () => get<LotteryResponse>('/api/activities/lottery')
 
 // 供页面复用的类型导出（避免页面重复 import 路径）。
 export type { Account }

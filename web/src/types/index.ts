@@ -94,6 +94,16 @@ export interface ModelItem {
   nickname: string
   id: string
   name: string
+  /** 上游 credits 价格描述串原样透传（如 "x0.51 credits"）；上游未提供为空串。 */
+  credits: string
+  /** 是否支持图片输入（上游 supportsImages）；上游未提供为 false。 */
+  supports_images: boolean
+  /** 中文描述（上游字段未核实，可选占位透传）。 */
+  description_zh: string
+  /** 英文描述（上游字段未核实，可选占位透传）。 */
+  description_en: string
+  /** 限免/活动徽标（从上游 tags/badges 提取）。 */
+  badges: string[]
   raw?: Record<string, unknown>
   error?: string
 }
@@ -113,6 +123,8 @@ export interface ActivityItem {
   name: string
   status: string
   reward: number
+  /** 任务类型（上游 task_type，如 daily/once），用于前端分组展示。 */
+  task_type: string
   new: boolean
 }
 
@@ -326,21 +338,53 @@ export interface LogsResponse {
   lines: LogLine[]
 }
 
-/** GET /api/models/pricing 条目。⚠️ 上游字段未核实，M4 实测定稿。 */
+/** GET /api/models/pricing 条目（M4 实测定稿：credits 描述串透传，无数值单价字段——上游未提供）。 */
 export interface ModelPricing {
+  uid: string
+  nickname: string
   id: string
   name: string
+  /** 上游 credits 描述串原样透传；空串 = 上游未提供。 */
+  credits: string
+  /** 面板推导的限免标记（badges 非空或 credits 为 x0 形态），非上游原话。 */
   free: boolean
-  price: number
-  price_unit: string
-  free_quota: number
+  /** 上游 tags/badges 中提取的限免/活动徽标。 */
+  badges: string[]
+  supports_images: boolean
+  /** credits 与 badges 均空时为「该模型上游未提供价格与限免数据」。 */
   note: string
 }
 
-/** GET /api/models/pricing；上游无价格数据时 items 为空并带 warning。 */
+/** GET /api/models/pricing；pricing_available=false 时前端展示降级文案。 */
 export interface ModelPricingResponse {
   items: ModelPricing[]
+  pricing_available: boolean
   warning?: string
+}
+
+// ---- 抽奖概览（M4，只读） ----
+
+/** GET /api/activities/lottery 最近抽奖记录条目。 */
+export interface LotteryDraw {
+  prize: string
+  at: string
+}
+
+/** go: control.LotteryOverview；上游字段未核实的占位形状。 */
+export interface LotteryOverview {
+  uid: string
+  nickname: string
+  chances: number
+  draws_total: number
+  recent: LotteryDraw[]
+  rewards_total: number
+  note: string
+  error?: string
+}
+
+/** GET /api/activities/lottery */
+export interface LotteryResponse {
+  items: LotteryOverview[]
 }
 
 // ---- 类型守卫（zod-free 手写窄化） ----

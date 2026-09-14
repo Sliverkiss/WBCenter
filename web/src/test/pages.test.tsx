@@ -66,7 +66,7 @@ test('Credits 渲染积分表格与数据', async () => {
 test('Models 渲染模型列表与状态徽标', async () => {
   render(<Models />)
   await waitFor(() => expect(screen.getByText('wb-pro')).toBeInTheDocument())
-  expect(screen.getByText('来自上游')).toBeInTheDocument()
+  expect(screen.getAllByText('来自上游').length).toBeGreaterThan(0)
 })
 
 test('Models 上游错误行渲染坏徽标', async () => {

@@ -7,6 +7,7 @@ import type {
   BatchActionResponse,
   CreditSummary,
   LogsResponse,
+  LotteryResponse,
   MockSchedulerTask,
   ModelItem,
   ModelPricingResponse,
@@ -67,13 +68,51 @@ export const credits: CreditSummary[] = [
   },
 ]
 
+// 模型样本覆盖三类：有价格+限免徽标+图片支持 / 有价格无限免 / 无价格数据降级 / 上游失败。
 export const models: ModelItem[] = [
-  { uid: 'u-1001', nickname: '阿明', id: 'wb-pro', name: 'WorkBuddy Pro', raw: { id: 'wb-pro', name: 'WorkBuddy Pro' } },
-  { uid: 'u-1002', nickname: '阿红', id: '', name: '', error: '上游模型查询失败' },
+  {
+    uid: 'u-1001',
+    nickname: '阿明',
+    id: 'wb-pro',
+    name: 'WorkBuddy Pro',
+    credits: 'x0.51 credits',
+    supports_images: true,
+    description_zh: '旗舰对话模型',
+    description_en: 'Flagship chat model',
+    badges: [],
+    raw: { id: 'wb-pro', name: 'WorkBuddy Pro', credits: 'x0.51 credits', supportsImages: true },
+  },
+  {
+    uid: 'u-1001',
+    nickname: '阿明',
+    id: 'wb-lite',
+    name: 'WorkBuddy Lite',
+    credits: 'x0 credits',
+    supports_images: false,
+    description_zh: '',
+    description_en: '',
+    badges: ['限时免费'],
+    raw: { id: 'wb-lite', name: 'WorkBuddy Lite', credits: 'x0 credits', tags: ['限时免费'] },
+  },
+  {
+    uid: 'u-1001',
+    nickname: '阿明',
+    id: 'wb-old',
+    name: 'WorkBuddy Old',
+    credits: '',
+    supports_images: false,
+    description_zh: '',
+    description_en: '',
+    badges: [],
+    raw: { id: 'wb-old', name: 'WorkBuddy Old' },
+  },
+  { uid: 'u-1002', nickname: '阿红', id: '', name: '', credits: '', supports_images: false, description_zh: '', description_en: '', badges: [], error: '上游模型查询失败' },
 ]
 
+// 活动任务样本覆盖任务类型分组：daily（重复性） / once（单次）。
 export const activities: ActivityItem[] = [
-  { uid: 'u-1001', nickname: '阿明', code: 'T-DAILY', name: '每日签到', status: '可领取', reward: 100, new: true },
+  { uid: 'u-1001', nickname: '阿明', code: 'T-DAILY', name: '每日签到', status: '可领取', reward: 100, task_type: 'daily', new: true },
+  { uid: 'u-1001', nickname: '阿明', code: 'T-ONCE', name: '首次领养猫猫', status: '进行中', reward: 300, task_type: 'once', new: false },
 ]
 
 export const schedulerTasks: SchedulerTask[] = [
@@ -166,7 +205,24 @@ export const logs: LogsResponse = {
 
 export const modelPricing: ModelPricingResponse = {
   items: [
-    { id: 'wb-pro', name: 'WorkBuddy Pro', free: false, price: 9.9, price_unit: 'CNY/天', free_quota: 0, note: '上游字段未核实，M4 实测定稿' },
-    { id: 'wb-lite', name: 'WorkBuddy Lite', free: true, price: 0, price_unit: '', free_quota: 100, note: '限免：每日 100 次' },
+    { uid: 'u-1001', nickname: '阿明', id: 'wb-pro', name: 'WorkBuddy Pro', credits: 'x0.51 credits', free: false, badges: [], supports_images: true, note: '' },
+    { uid: 'u-1001', nickname: '阿明', id: 'wb-lite', name: 'WorkBuddy Lite', credits: 'x0 credits', free: true, badges: ['限时免费'], supports_images: false, note: '' },
+    { uid: 'u-1001', nickname: '阿明', id: 'wb-old', name: 'WorkBuddy Old', credits: '', free: false, badges: [], supports_images: false, note: '该模型上游未提供价格与限免数据' },
+  ],
+  pricing_available: true,
+}
+
+export const lottery: LotteryResponse = {
+  items: [
+    {
+      uid: 'u-1001',
+      nickname: '阿明',
+      chances: 2,
+      draws_total: 5,
+      recent: [{ prize: '积分 +10', at: '2026-09-10 12:00' }],
+      rewards_total: 1,
+      note: '上游字段未核实的占位',
+    },
+    { uid: 'u-1002', nickname: '阿红', chances: 0, draws_total: 0, recent: [], rewards_total: 0, note: '', error: '上游抽奖概要查询失败' },
   ],
 }

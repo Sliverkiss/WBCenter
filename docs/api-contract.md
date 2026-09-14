@@ -179,7 +179,18 @@
 ```json
 {
   "items": [
-    { "uid": "u-1001", "nickname": "阿明", "id": "wb-pro", "name": "WorkBuddy Pro", "raw": { "id": "wb-pro" } },
+    {
+      "uid": "u-1001",
+      "nickname": "阿明",
+      "id": "wb-pro",
+      "name": "WorkBuddy Pro",
+      "credits": "x0.51 credits",
+      "supports_images": true,
+      "description_zh": "旗舰对话模型",
+      "description_en": "Flagship chat model",
+      "badges": ["限时免费"],
+      "raw": { "id": "wb-pro" }
+    },
     { "uid": "u-1002", "nickname": "阿红", "id": "", "name": "", "error": "上游模型查询失败" }
   ]
 }
@@ -188,6 +199,10 @@
 | 字段 | 类型 | 语义 |
 |---|---|---|
 | id / name | string | 模型标识与显示名（从上游多候选键提取，提取不到为空串） |
+| credits | string | 上游价格描述串原样透传（如 `"x0.51 credits"`）。**上游实测来源**：`/v2/enterprises/personal/models` 响应 `data.models[].credits`（harness 分析报告 §6.1/§6.3）。上游未返回该字段时为空串 |
+| supports_images | bool | 是否支持图片输入。上游字段名 `supportsImages`（camelCase，harness buddy.ts:563-583 解析口径），本契约按面板惯例统一 snake_case 落盘。**上游未返回时为 false** |
+| description_zh / description_en | string | 中英文描述。**上游字段未核实**：harness 分析报告未提及该字段，作为可选占位透传（多候选键 `descriptionZh/description_zh/desc` 与 `descriptionEn/description_en`），上游未提供时为空串 |
+| badges | string[] | 限免/活动徽标列表。从上游 `tags` / `badges` 数组提取含「免费/限免/free/trial」关键词的条目原样透出；上游无此类条目标记时为空数组 |
 | raw | object（可省略） | 上游原始条目（成功时存在） |
 | error | string（可省略） | 该账号上游查询失败原因 |
 
@@ -200,7 +215,7 @@
 ```json
 {
   "items": [
-    { "uid": "u-1001", "nickname": "阿明", "code": "T-DAILY", "name": "每日签到", "status": "可领取", "reward": 100, "new": true }
+    { "uid": "u-1001", "nickname": "阿明", "code": "T-DAILY", "name": "每日签到", "status": "可领取", "reward": 100, "task_type": "daily", "new": true }
   ]
 }
 ```
@@ -209,6 +224,7 @@
 |---|---|---|
 | code / name / status | string | 上游成长任务编号、名称、状态 |
 | reward | number | 奖励额度 |
+| task_type | string | 任务类型。**上游实测来源**：`/v2/activity/growth/tasks` 响应 `data.tasks[].task_type`（Apifox 导出 growth 域 §成长任务清单）。用于前端「单次/重复性」分组展示；上游未返回时为空串 |
 | new | bool | 完成基线后首次探测到的新任务 |
 
 ### 1.10 `GET /api/scheduler-tasks`
@@ -527,7 +543,12 @@
 
 ### 2.5 `GET /api/models/pricing`（M4 模型价格与限免，Issue #70）
 
-> ⚠️ 上游字段未核实，M4 实测定稿。Apifox 导出中计费域存在套餐/价格相关端点，但「按模型的价格与限免标识」字段名尚未在真实响应中确认；本契约为占位结构，M4 实测后允许调整字段名（届时同步修订本文档与 `src/types/`）。
+> **M4 实测定稿**。上游字段核对结论：
+> - **存在**（harness 分析报告 §6.1/§6.3 实测）：`data.models[].credits`（价格描述串，如 `"x0.51 credits"`）、`supportsImages`、`tags`（含 `text-to-image` 等分类标签）。
+> - **不存在**（Apifox 导出 + harness 分析报告均未发现）：按模型的数值单价（CNY/千次等）、`free_quota` 限免额度字段、`descriptionZh/En` 描述字段、显式「限时免费」徽标字段。
+> - **候选限免信号**：`tags`/`badges` 数组若含「免费/限免/free/trial」关键词条目，原样透传到 `badges` 并置 `free=true`；上游未提供时 `free=false`。
+>
+> 因此本端点定稿为 **credits 描述串透传 + pricing_available 标记**：不编造数值单价与额度。
 
 **响应 200：**
 
@@ -535,22 +556,77 @@
 {
   "items": [
     {
+      "uid": "u-1001",
+      "nickname": "阿明",
       "id": "wb-pro",
       "name": "WorkBuddy Pro",
+      "credits": "x0.51 credits",
       "free": false,
-      "price": 9.9,
-      "price_unit": "CNY/天",
-      "free_quota": 0,
-      "note": "上游字段未核实，M4 实测定稿"
+      "badges": [],
+      "supports_images": true,
+      "note": ""
     },
     {
+      "uid": "u-1001",
+      "nickname": "阿明",
       "id": "wb-lite",
       "name": "WorkBuddy Lite",
+      "credits": "x0 credits",
       "free": true,
-      "price": 0,
-      "price_unit": "",
-      "free_quota": 100,
-      "note": "限免：每日 100 次"
+      "badges": ["限时免费"],
+      "supports_images": false,
+      "note": ""
+    }
+  ],
+  "pricing_available": true
+}
+```
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| items[].uid / nickname | string | 账号标识与昵称（与 1.8 对齐；同一模型可被多账号看到，按账号-模型成行） |
+| items[].id / name | string | 模型标识与显示名 |
+| items[].credits | string | 上游 `credits` 价格描述串原样透传；上游未提供时为空串 |
+| items[].free | bool | 是否限免。`true` 的触发条件：`badges` 非空，或 credits 串归一化后形如 `x0`/`0 credits`。上游无显式限免字段，该字段为面板推导值，非上游原话 |
+| items[].badges | string[] | 从上游 `tags`/`badges` 提取的限免/活动类徽标（关键词：免费/限免/free/trial，大小写不敏感） |
+| items[].supports_images | bool | 是否支持图片输入（同 1.8） |
+| items[].note | string | 补充说明；`credits` 与 `badges` 均为空时为 `该模型上游未提供价格与限免数据`，否则为空串 |
+| pricing_available | bool | 账号池内是否至少一个模型返回了 `credits` 描述串。false 时前端展示「上游未提供模型价格数据」降级文案 |
+| warning | string（可省略） | 全部账号上游查询失败或所有模型均无 credits 时为 `上游未提供模型价格数据`；此时 pricing_available=false |
+
+**错误：** 401 未登录。上游失败按账号降级（该账号条目缺省），不返回 502。
+
+### 2.6 `GET /api/activities/lottery`（M4 抽奖概览，只读）
+
+各账号抽奖玩法概览（剩余次数 + 最近记录 + 已获奖品概要）。**只读**：不调用 `POST /activity/growth/lottery/draw`。
+
+> **上游字段未核实占位**：Apifox 导出 growth 域存在 `lottery/summary`、`lottery/chances`、`lottery/draws`、`lottery/rewards` 四个端点，但响应 schema 均为空对象/空数组占位（`data: {}`），具体字段名未经真实响应确认。本契约以下字段为面板侧约定形状，聚合时按多候选键提取，提取不到给零值并在 `note` 标注。
+
+**响应 200：**
+
+```json
+{
+  "items": [
+    {
+      "uid": "u-1001",
+      "nickname": "阿明",
+      "chances": 2,
+      "draws_total": 5,
+      "recent": [
+        { "prize": "积分 +10", "at": "2026-09-10 12:00" }
+      ],
+      "rewards_total": 1,
+      "note": "上游字段未核实的占位"
+    },
+    {
+      "uid": "u-1002",
+      "nickname": "阿红",
+      "chances": 0,
+      "draws_total": 0,
+      "recent": [],
+      "rewards_total": 0,
+      "note": "",
+      "error": "上游抽奖概要查询失败"
     }
   ]
 }
@@ -558,11 +634,12 @@
 
 | 字段 | 类型 | 语义 |
 |---|---|---|
-| id / name | string | 模型标识与显示名（与 1.8 对齐） |
-| free | bool | 是否限免 |
-| price | number | 单价（限免为 0） |
-| price_unit | string | 计价单位文案，如 `CNY/天`、`CNY/千次` |
-| free_quota | number | 限免额度（0 表示无） |
-| note | string | 补充说明（含占位标注） |
+| items[].uid / nickname | string | 账号标识与昵称 |
+| items[].chances | number | 当前可用抽奖次数（上游 `lottery/chances` 多候选键提取，未提供为 0） |
+| items[].draws_total | number | 抽奖历史总条数（上游 `lottery/draws` 的 `total` 字段，未提供为 0） |
+| items[].recent | array | 最近抽奖记录（最多 5 条；prize/at 多候选键提取，未提供为空数组） |
+| items[].rewards_total | number | 已获奖品总条数（上游 `lottery/rewards` 的 `total` 字段，未提供为 0） |
+| items[].note | string | 占位标注：`上游字段未核实的占位`（任一字段为推导零值时给出） |
+| items[].error | string（可省略） | 该账号上游查询失败原因；失败时其余字段给零值 |
 
-**错误：** 401 未登录；上游价格端点不可用时返回 200 且 items 为空数组 + 顶层 `"warning": "上游未提供模型价格数据"`（降级而非 502）。
+**错误：** 401 未登录。单账号失败降级到该条目的 `error` 字段，整批恒 200。

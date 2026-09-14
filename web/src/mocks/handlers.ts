@@ -9,6 +9,7 @@ import {
   batchActionResponse,
   credits,
   logs,
+  lottery,
   mockSchedulerTasks,
   modelPricing,
   models,
@@ -157,4 +158,5 @@ export const handlers = [
   }),
   http.get('/api/logs', () => (authed ? json(logs) : unauthorized())),
   http.get('/api/models/pricing', () => (authed ? json(modelPricing) : unauthorized())),
+  http.get('/api/activities/lottery', () => (authed ? json(lottery) : unauthorized())),
 ]
