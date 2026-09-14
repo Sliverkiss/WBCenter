@@ -1,6 +1,6 @@
 // 登录页：面板本地口令校验。
 import { FormEvent, useState } from 'react'
-import { post } from '../services/api'
+import { login } from '../services/api'
 
 export function Login({ onDone }: { onDone: () => Promise<void> }) {
   const [username, setUsername] = useState('admin')
@@ -9,7 +9,7 @@ export function Login({ onDone }: { onDone: () => Promise<void> }) {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     try {
-      await post('/api/login', { username, password })
+      await login({ username, password })
       await onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')

@@ -1,7 +1,7 @@
 // 应用壳：会话检查 + hash 路由装配 + 侧栏布局。页面实现见 pages/。
 import { useCallback, useEffect, useState } from 'react'
 import type { Page } from './types'
-import { get, post } from './services/api'
+import { getSession, logout, setUnauthorizedHandler } from './services/api'
 import { useHashRoute } from './hooks/useHashRoute'
 import { useTheme } from './hooks/useTheme'
 import { useNotice } from './hooks/useNotice'
@@ -29,9 +29,14 @@ export default function App() {
   const { notice, setNotice, clear } = useNotice()
 
   const check = useCallback(async () => {
-    try { const s = await get<{ authenticated: boolean }>('/api/session'); setAuthed(s.authenticated) } catch { setAuthed(false) }
+    try { const s = await getSession(); setAuthed(s.authenticated) } catch { setAuthed(false) }
   }, [])
   useEffect(() => { void check() }, [check])
+  // 任意 API 返回 401 时全局登出，回到登录页。
+  useEffect(() => {
+    setUnauthorizedHandler(() => setAuthed(false))
+    return () => setUnauthorizedHandler(null)
+  }, [])
   if (authed === null) return <div className="center">正在连接本地控制台…</div>
   if (!authed) return <Login onDone={check} />
 
@@ -43,7 +48,7 @@ export default function App() {
         <div className="side-bottom">
           <button className="link" onClick={toggle}>{theme === 'dark' ? '切换为浅色主题' : '切换为暗色主题'}</button>
           <span>第三方本地控制台</span>
-          <button className="link" onClick={() => void post('/api/logout').then(() => setAuthed(false))}>退出登录</button>
+          <button className="link" onClick={() => void logout().then(() => setAuthed(false))}>退出登录</button>
         </div>
       </aside>
       <main className="main">
