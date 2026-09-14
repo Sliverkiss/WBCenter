@@ -21,6 +21,22 @@ test('Overview 渲染统计卡与快速入口', async () => {
   expect(screen.getByText('查看今日积分汇总 →')).toBeInTheDocument()
 })
 
+test('Overview 渲染会话死账号统计卡（fixture session_dead=1）', async () => {
+  render(<Overview onPage={() => undefined} />)
+  await waitFor(() => expect(screen.getByText('会话失效账号')).toBeInTheDocument())
+  // fixture overview.session_dead = 1
+  const card = screen.getByText('会话失效账号').closest('.stat') as HTMLElement
+  expect(card.textContent).toContain('1')
+})
+
+test('Overview 快捷入口：去账号池探测跳转到 accounts 页', async () => {
+  const pages: string[] = []
+  render(<Overview onPage={p => pages.push(p)} />)
+  await waitFor(() => expect(screen.getByText('健康账号')).toBeInTheDocument())
+  fireEvent.click(screen.getByText('全量探测账号池 →'))
+  expect(pages).toContain('accounts')
+})
+
 test('Overview 上游错误时渲染 ErrorView', async () => {
   server.use(http.get('/api/overview', () => HttpResponse.json({ error: '上游不可用' }, { status: 502 })))
   render(<Overview onPage={() => undefined} />)
