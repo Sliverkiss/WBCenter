@@ -7,6 +7,7 @@ import { Head } from '../components/Head'
 import { Loading } from '../components/Loading'
 import { ErrorView } from '../components/ErrorView'
 import { Badge } from '../components/Badge'
+import { BatchPanel } from '../components/BatchPanel'
 
 export function Automation({ onNotice }: { onNotice: (s: string) => void }) {
   const [items, setItems] = useState<Any[] | null>(null)
@@ -45,6 +46,7 @@ export function Automation({ onNotice }: { onNotice: (s: string) => void }) {
   return (
     <>
       <Head eyebrow="AUTOMATION" title="自动化管理" text="这些是真实持久化的面板定时任务。默认仅开启新活动探测，避免与网关既有任务双跑。" />
+      <BatchPanel />
       <section className="card">
         <div className="automation-list">
           {items.map(a => (
