@@ -450,7 +450,7 @@ func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"id": id, "url": url})
 }
 func (s *Server) oauthPoll(w http.ResponseWriter, r *http.Request) {
-	res, err := s.svc.PollOAuth(r.PathValue("id"))
+	res, err := s.svc.PollOAuth(r.Context(), r.PathValue("id"))
 	if err != nil {
 		jsonErr(w, 502, err.Error())
 		return

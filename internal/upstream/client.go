@@ -217,6 +217,9 @@ func IsBuddyTaskIncomplete(err error) bool {
 type Client struct {
 	HTTP    *http.Client
 	Timeout time.Duration
+	// BaseOverride 覆盖所有上游基址（仅测试用：指向 httptest.Server）。
+	// 生产为零值，走 regionBases 的真实域名。
+	BaseOverride string
 }
 
 // New 构建客户端；timeout <=0 时用 120s。
@@ -267,12 +270,18 @@ func regionOfAccount(a *authstore.Account) Region {
 
 // chatBase 返回账号所属 region 的聊天基址。
 func (c *Client) chatBase(a *authstore.Account) string {
+	if c.BaseOverride != "" {
+		return c.BaseOverride
+	}
 	base, _, _ := regionBases(regionOfAccount(a))
 	return base
 }
 
 // billingBase 返回账号所属 region 的计费基址。
 func (c *Client) billingBase(a *authstore.Account) string {
+	if c.BaseOverride != "" {
+		return c.BaseOverride
+	}
 	_, base, _ := regionBases(regionOfAccount(a))
 	return base
 }
@@ -369,6 +378,9 @@ func describeBody(status int, raw []byte) string {
 // StartLogin 申请设备授权，返回 state 与用户需在浏览器打开的授权 URL。
 func (c *Client) StartLogin(region Region) (state, authURL string, err error) {
 	base, _, _ := regionBases(region)
+	if c.BaseOverride != "" {
+		base = c.BaseOverride
+	}
 	req, err := http.NewRequest(http.MethodPost, base+EndpointAuthState, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return "", "", err
@@ -405,6 +417,9 @@ func (c *Client) PollLogin(region Region, state string) (*authstore.Account, err
 		return nil, fmt.Errorf("缺少 state")
 	}
 	base, _, _ := regionBases(region)
+	if c.BaseOverride != "" {
+		base = c.BaseOverride
+	}
 
 	req, err := http.NewRequest(http.MethodGet, base+EndpointAuthToken+state, nil)
 	if err != nil {
@@ -414,7 +429,9 @@ func (c *Client) PollLogin(region Region, state string) (*authstore.Account, err
 	data, err := c.doJSON(req)
 	if err != nil {
 		var ue *Error
-		// 服务端「登录未完成」以业务 code != 0 表达；5xx/网络错误才是真失败。
+		// 服务端「登录未完成」以业务 code != 0 表达（含 11217 token not ready，
+		// 此时 HTTP 200 + 业务错误码）；5xx/网络错误才是真失败。
+		// 非 5xx 的业务拒绝一律归一为等待，让前端继续轮询。
 		if errors.As(err, &ue) && ue.Status > 0 && ue.Status < 500 {
 			return nil, nil
 		}

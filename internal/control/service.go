@@ -113,10 +113,32 @@ type MockSchedulerTaskView struct {
 	MockSchedulerTask
 	Nickname string `json:"nickname"`
 }
+// OAuth 登录会话状态机（M5）：waiting → success / error / timeout（均终态）。
+const (
+	oauthStatusWaiting = "waiting"
+	oauthStatusSuccess = "success"
+	oauthStatusError   = "error"
+	oauthStatusTimeout = "timeout"
+	// oauthFlowTTL 轮询总上限，与 harness buddy-oauth.ts:482 的 5 分钟一致。
+	oauthFlowTTL = 5 * time.Minute
+)
+
 type loginFlow struct {
 	Region     upstream.Region
 	State, URL string
 	Created    time.Time
+	// Status 终态记忆：success/error/timeout 后轮询幂等返回，不再调上游。
+	Status  string
+	Message string
+	UID     string
+	Nick    string
+}
+
+// OAuthUpstream 是 OAuth 状态机所依赖的上游最小接口。
+// 生产实现是 *upstream.Client，测试用桩替换以覆盖 waiting/error/timeout 序列。
+type OAuthUpstream interface {
+	StartLogin(region upstream.Region) (state, authURL string, err error)
+	PollLogin(region upstream.Region, state string) (*authstore.Account, error)
 }
 
 type Service struct {
@@ -142,6 +164,10 @@ type Service struct {
 	// lastProbe 是最近一次 POST /api/probe 的聚合结果；供 /api/overview 的
 	// session_dead 卡片读取，未运行过探测时为空。
 	lastProbe []ProbeResult
+	// oauth 用于测试替换 StartOAuth/PollOAuth 的上游调用；生产为 nil，走 s.up。
+	oauth OAuthUpstream
+	// now 时间源，测试可替换以模拟轮询超时。
+	now func() time.Time
 }
 
 func NewService(cfg Config, store *authstore.Store, up *upstream.Client, state *State) *Service {
@@ -581,37 +607,79 @@ func first(row map[string]any, keys ...string) string {
 	return ""
 }
 
+// oauthUp 返回 OAuth 上游实现：测试桩优先，生产走 s.up。
+func (s *Service) oauthUp() OAuthUpstream {
+	if s.oauth != nil {
+		return s.oauth
+	}
+	return s.up
+}
+
+// nowFunc 返回时间源（默认 time.Now，测试可注入以模拟超时）。
+func (s *Service) nowFunc() func() time.Time {
+	if s.now != nil {
+		return s.now
+	}
+	return time.Now
+}
+
 func (s *Service) StartOAuth(region string) (string, string, error) {
 	r, err := upstream.NormalizeRegion(region)
 	if err != nil {
 		return "", "", err
 	}
-	state, url, err := s.up.StartLogin(r)
+	state, url, err := s.oauthUp().StartLogin(r)
 	if err != nil {
 		return "", "", err
 	}
-	id := fmt.Sprintf("%d", time.Now().UnixNano())
+	id := fmt.Sprintf("%d", s.nowFunc()().UnixNano())
 	s.mu.Lock()
-	s.logins[id] = loginFlow{Region: r, State: state, URL: url, Created: time.Now()}
+	s.logins[id] = loginFlow{Region: r, State: state, URL: url, Created: s.nowFunc()(), Status: oauthStatusWaiting}
 	s.mu.Unlock()
 	return id, url, nil
 }
-func (s *Service) PollOAuth(id string) (map[string]any, error) {
+
+// PollOAuth 查询一次授权会话状态。
+//
+// 状态机：waiting → success / error / timeout（终态幂等返回，不再调上游）。
+// 上游 11217（token not ready）已由 client.PollLogin 归一为 (nil, nil)，此处映射 waiting。
+// 会话级错误（未知 id / 只读 / 落盘失败）仍以 Go error 返回，由 handler 映射 502。
+func (s *Service) PollOAuth(ctx context.Context, id string) (map[string]any, error) {
 	s.mu.Lock()
 	flow, ok := s.logins[id]
 	s.mu.Unlock()
 	if !ok {
 		return nil, fmt.Errorf("授权会话不存在或已过期")
 	}
-	if time.Since(flow.Created) > 10*time.Minute {
-		return nil, fmt.Errorf("授权会话已过期")
+	// 终态幂等：不再调上游，直接返回记忆状态。
+	switch flow.Status {
+	case oauthStatusSuccess:
+		return map[string]any{"status": oauthStatusSuccess, "uid": flow.UID, "nickname": flow.Nick}, nil
+	case oauthStatusError:
+		return map[string]any{"status": oauthStatusError, "message": flow.Message}, nil
+	case oauthStatusTimeout:
+		return map[string]any{"status": oauthStatusTimeout, "message": flow.Message}, nil
 	}
-	a, err := s.up.PollLogin(flow.Region, flow.State)
+	// 轮询总上限 5 分钟（与 harness buddy-oauth.ts:482 一致）。
+	if s.nowFunc()().Sub(flow.Created) > oauthFlowTTL {
+		flow.Status = oauthStatusTimeout
+		flow.Message = "授权超时（5 分钟未完成），请重新发起"
+		s.mu.Lock()
+		s.logins[id] = flow
+		s.mu.Unlock()
+		return map[string]any{"status": oauthStatusTimeout, "message": flow.Message}, nil
+	}
+	a, err := s.oauthUp().PollLogin(flow.Region, flow.State)
 	if err != nil {
-		return nil, err
+		flow.Status = oauthStatusError
+		flow.Message = err.Error()
+		s.mu.Lock()
+		s.logins[id] = flow
+		s.mu.Unlock()
+		return map[string]any{"status": oauthStatusError, "message": flow.Message}, nil
 	}
 	if a == nil {
-		return map[string]any{"status": "pending"}, nil
+		return map[string]any{"status": oauthStatusWaiting}, nil
 	}
 	if s.cfg.ReadOnly {
 		return nil, fmt.Errorf("服务端已开启只读模式")
@@ -619,10 +687,13 @@ func (s *Service) PollOAuth(id string) (map[string]any, error) {
 	if err := s.store.Save(a); err != nil {
 		return nil, err
 	}
+	flow.Status = oauthStatusSuccess
+	flow.UID = a.UID
+	flow.Nick = a.Nickname
 	s.mu.Lock()
-	delete(s.logins, id)
+	s.logins[id] = flow
 	s.mu.Unlock()
-	return map[string]any{"status": "success", "uid": a.UID, "nickname": a.Nickname}, nil
+	return map[string]any{"status": oauthStatusSuccess, "uid": a.UID, "nickname": a.Nickname}, nil
 }
 
 func (s *Service) Run(ctx context.Context, action, uid string) (string, error) {
