@@ -4,6 +4,7 @@ import type {
   Account,
   ActivityItem,
   Automation,
+  BatchActionResponse,
   CreditSummary,
   LogsResponse,
   MockSchedulerTask,
@@ -130,13 +131,30 @@ export const probeResponse: ProbeResponse = {
 }
 
 export const statsSummary: StatsSummary = {
-  accounts_total: 2,
-  credits_current_total: 1200,
+  accounts_total: 4,
+  credits_current_total: 1550,
   credits_today_allocated_total: 100,
   credits_today_consumed_total: 40,
+  credits_today_remaining_total: 60,
   checkin_done_today: 1,
-  checkin_pending_today: 1,
+  checkin_pending_today: 3,
+  status_healthy: 3,
+  status_expired: 1,
+  status_session_dead: 1,
+  status_disabled: 1,
+  automation_runs_today_ok: 4,
+  automation_runs_today_failed: 1,
   generated_at: '2026-09-14T08:30:00+08:00',
+}
+
+// 一键批量任务四类结果样本：成功 / 禁用跳过 / 12153 会话死 / 上游失败。
+export const batchActionResponse: BatchActionResponse = {
+  results: [
+    { uid: 'u-1001', nickname: '阿明', ok: true, message: '签到成功' },
+    { uid: 'u-1002', nickname: '阿红', ok: true, skipped: true, message: '账号已禁用，已跳过' },
+    { uid: 'u-1003', nickname: '阿蓝', ok: false, session_dead: true, error: '上游会话失效（12153）' },
+    { uid: 'u-1004', nickname: '阿绿', ok: false, error: '上游签到接口调用失败' },
+  ],
 }
 
 export const logs: LogsResponse = {

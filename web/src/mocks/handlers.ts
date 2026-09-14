@@ -6,6 +6,7 @@ import {
   accounts,
   activities,
   automations,
+  batchActionResponse,
   credits,
   logs,
   mockSchedulerTasks,
@@ -144,6 +145,16 @@ export const handlers = [
   // ---- 新增端点（M2+ 契约，后端未实现，mock 先行） ----
   http.post('/api/probe', () => (authed ? json(probeResponse) : unauthorized())),
   http.get('/api/stats/summary', () => (authed ? json(statsSummary) : unauthorized())),
+  http.post('/api/batch-actions', async ({ request }) => {
+    if (!authed) return unauthorized()
+    const body = (await request.json()) as { action?: string; uids?: string[] }
+    if (!body.action || !['checkin', 'travel', 'refresh'].includes(body.action)) return err(400, '不支持的动作')
+    // uids 指定子集时按子集过滤样本；缺省返回全部四类样本。
+    const results = Array.isArray(body.uids) && body.uids.length > 0
+      ? batchActionResponse.results.filter(r => body.uids?.includes(r.uid))
+      : batchActionResponse.results
+    return json({ results })
+  }),
   http.get('/api/logs', () => (authed ? json(logs) : unauthorized())),
   http.get('/api/models/pricing', () => (authed ? json(modelPricing) : unauthorized())),
 ]

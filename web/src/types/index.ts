@@ -276,9 +276,42 @@ export interface StatsSummary {
   credits_current_total: number
   credits_today_allocated_total: number
   credits_today_consumed_total: number
+  credits_today_remaining_total: number
   checkin_done_today: number
   checkin_pending_today: number
+  status_healthy: number
+  status_expired: number
+  status_session_dead: number
+  status_disabled: number
+  automation_runs_today_ok: number
+  automation_runs_today_failed: number
   generated_at: string
+}
+
+// ---- 一键批量任务（M3） ----
+
+/** POST /api/batch-actions 请求体。uids 缺省 = 全量账号。 */
+export interface BatchActionInput {
+  action: 'checkin' | 'travel' | 'refresh'
+  uids?: string[]
+}
+
+/** POST /api/batch-actions 单账号结果。 */
+export interface BatchActionResult {
+  uid: string
+  nickname: string
+  ok: boolean
+  message?: string
+  /** 账号被跳过未调上游（当前唯一触发：账号已禁用）。 */
+  skipped?: boolean
+  /** 上游判 12153 会话失效（徽标语义，不视为可重试失败）。 */
+  session_dead?: boolean
+  error?: string
+}
+
+/** POST /api/batch-actions 响应。 */
+export interface BatchActionResponse {
+  results: BatchActionResult[]
 }
 
 /** GET /api/logs 单行。 */

@@ -8,6 +8,8 @@ import type {
   Automation,
   AutomationInput,
   AutomationsResponse,
+  BatchActionInput,
+  BatchActionResponse,
   CreditsResponse,
   ErrorEnvelope,
   LogsResponse,
@@ -107,6 +109,7 @@ export const pollOAuth = (id: string) => post<OAuthPollResponse>(`/api/oauth/${e
 // ---- 新增端点（M2+，后端实现随后续里程碑补齐，当前由 MSW 提供） ----
 export const startProbe = () => post<ProbeResponse>('/api/probe')
 export const getStatsSummary = () => get<StatsSummary>('/api/stats/summary')
+export const runBatchAction = (input: BatchActionInput) => post<BatchActionResponse>('/api/batch-actions', input)
 export const getLogs = () => get<LogsResponse>('/api/logs')
 export const getModelPricing = () => get<ModelPricingResponse>('/api/models/pricing')
 

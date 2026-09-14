@@ -431,8 +431,15 @@
   "credits_current_total": 8600,
   "credits_today_allocated_total": 500,
   "credits_today_consumed_total": 210,
+  "credits_today_remaining_total": 290,
   "checkin_done_today": 3,
   "checkin_pending_today": 2,
+  "status_healthy": 3,
+  "status_expired": 1,
+  "status_session_dead": 1,
+  "status_disabled": 1,
+  "automation_runs_today_ok": 4,
+  "automation_runs_today_failed": 1,
   "generated_at": "2026-09-14T08:30:00+08:00"
 }
 ```
@@ -440,14 +447,62 @@
 | 字段 | 类型 | 语义 |
 |---|---|---|
 | accounts_total | number | 账号总数 |
-| credits_current_total | number | 全池当前积分合计 |
-| credits_today_allocated_total / consumed_total | number | 今日额度发放/消耗合计 |
-| checkin_done_today / pending_today | number | 今日已签/未签账号数 |
+| credits_current_total | number | 全池当前积分合计（上游查询失败账号按 0 计入） |
+| credits_today_allocated_total / consumed_total | number | 今日额度发放/消耗合计（同上口径） |
+| credits_today_remaining_total | number | 今日剩余额度合计（同上口径） |
+| checkin_done_today / pending_today | number | 今日已签/未签账号数。数据来源：最近一次 `POST /api/probe` 缓存快照的 `checkin.checked_in`（该字段本身的数据来源见 §2.1 标注）；未运行过探测时 done=0、pending=accounts_total |
+| status_healthy / status_expired | number | Token 未过期/已过期账号数（凭据本地判定，不调上游） |
+| status_session_dead | number | 最近一次探测被判 12153 的账号数（缓存；未探测为 0，与 /api/overview 同源） |
+| status_disabled | number | 凭据标记 `disabled: true` 的账号数（见 §2.3 禁用约定）；与其他状态可重叠 |
+| automation_runs_today_ok / failed | number | 面板本地自动化任务今日（服务端时区）成功/失败次数，来自 RunRecord 历史 |
 | generated_at | string(时间) | 汇总生成时间 |
+
+**数据来源与缓存策略（M3 定稿）：** 积分四项为**按需实时聚合**（与 `GET /api/credits` 同口径逐账号查询，单账号失败降级按 0 计入，不拖垮整体）；签到计数与 12153 分布**复用 lastProbe 缓存**（未探测时为保守零值，不主动触发上游调用）；自动化统计来自本地 RunRecord（无上游调用）。无历史趋势数据——趋势图待 M5 日志系统后补，本端点只返回当前快照。
 
 **错误：** 401 未登录。
 
-### 2.3 `GET /api/logs`（M5 面板运行日志）
+### 2.3 `POST /api/batch-actions`（M3 一键批量任务）
+
+对账号池批量执行指定动作（签到/旅行/刷新凭据），逐账号返回结果。与 PR #60「一键任务」语义对齐：禁用账号跳过不调上游、12153 会话失效标记但不视为可重试失败。
+
+**请求体：**
+
+```json
+{ "action": "checkin", "uids": ["u-1001", "u-1002"] }
+```
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| action | string | 必填，`checkin` / `travel` / `refresh` 之一 |
+| uids | string[]（可省略） | 目标账号子集；缺省或空数组 = 全量账号。不存在的 uid 静默忽略 |
+
+**响应 200：**
+
+```json
+{
+  "results": [
+    { "uid": "u-1001", "nickname": "阿明", "ok": true, "message": "签到成功" },
+    { "uid": "u-1002", "nickname": "阿红", "ok": true, "skipped": true, "message": "账号已禁用，已跳过" },
+    { "uid": "u-1003", "nickname": "阿蓝", "ok": false, "session_dead": true, "error": "上游会话失效（12153）" },
+    { "uid": "u-1004", "nickname": "阿绿", "ok": false, "error": "上游签到接口调用失败" }
+  ]
+}
+```
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| results[].uid / nickname | string | 账号标识与昵称 |
+| results[].ok | bool | 该账号本次动作是否成功（skipped=true 时 ok=true，表示「按预期跳过」而非上游成功） |
+| results[].message | string（可省略） | 成功或跳过时的说明文案 |
+| results[].skipped | bool（可省略） | 该账号被跳过未调上游（当前唯一触发：账号已禁用） |
+| results[].session_dead | bool（可省略） | 上游判 12153 会话失效（前端渲染徽标；不视为可重试失败） |
+| results[].error | string（可省略） | 失败原因（ok=false 时必填） |
+
+**账号禁用约定（M3 新增，凭据文件层）：** auths 目录下凭据 JSON 新增可选字段 `"disabled": true`（面板不主动写入，由运维手工标记或后续里程碑提供开关）；批量动作对禁用账号跳过且不计失败。禁用账号仍可被探测（探测是只读诊断），仅写动作跳过。
+
+**错误：** 400 `不支持的动作`；401 未登录；403 只读模式/跨站。整批请求本身恒 200（单账号失败下沉到 results[].error，不中断整批）。
+
+### 2.4 `GET /api/logs`（M5 面板运行日志）
 
 面板后端环形缓冲日志快照（新→旧，最多 200 行）。敏感字段（token/cookie/密码）在后端写入缓冲前已脱敏。
 
@@ -470,7 +525,7 @@
 
 **错误：** 401 未登录。
 
-### 2.4 `GET /api/models/pricing`（M4 模型价格与限免，Issue #70）
+### 2.5 `GET /api/models/pricing`（M4 模型价格与限免，Issue #70）
 
 > ⚠️ 上游字段未核实，M4 实测定稿。Apifox 导出中计费域存在套餐/价格相关端点，但「按模型的价格与限免标识」字段名尚未在真实响应中确认；本契约为占位结构，M4 实测后允许调整字段名（届时同步修订本文档与 `src/types/`）。
 
