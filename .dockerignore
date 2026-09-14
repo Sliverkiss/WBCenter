@@ -1,0 +1,40 @@
+# 版本控制与文档
+.git/
+.claude/
+docs/
+*.md
+!README.md
+
+# 运行时数据与本地配置（绝不进镜像）
+data/
+.env
+control-center.json
+config.json
+testenv/
+
+# 前端依赖与构建产物（Dockerfile 阶段 1 内重建；dist 由 web 阶段产出）
+# 注意：internal/webui/dist/index.html 占位文件必须保留在 context 中（Dockerfile 阶段 1 COPY 依赖）。
+web/node_modules/
+web/coverage/
+web/test-results/
+web/playwright-report/
+web/tsconfig.tsbuildinfo
+web/public/mockServiceWorker.js
+internal/webui/dist/assets/
+internal/webui/dist/mockServiceWorker.js
+
+# Go 构建产物
+wbgui
+
+# 编辑器与系统
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# 本地代理与临时目录
+.workbuddy-ai/
+.playwright-cli/
+.chrome-profile/
+shots/
+shot.sh
