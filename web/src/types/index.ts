@@ -237,9 +237,9 @@ export interface OAuthStartResponse {
   url: string
 }
 
-/** POST /api/oauth/{id}/poll 等待中响应。 */
-export interface OAuthPollPending {
-  status: 'pending'
+/** POST /api/oauth/{id}/poll 等待中响应（M5：pending → waiting 归一）。 */
+export interface OAuthPollWaiting {
+  status: 'waiting'
 }
 
 /** POST /api/oauth/{id}/poll 成功响应。 */
@@ -249,7 +249,19 @@ export interface OAuthPollSuccess {
   nickname: string
 }
 
-export type OAuthPollResponse = OAuthPollPending | OAuthPollSuccess
+/** POST /api/oauth/{id}/poll 失败终态（M5）。 */
+export interface OAuthPollError {
+  status: 'error'
+  message: string
+}
+
+/** POST /api/oauth/{id}/poll 超时终态（M5：5 分钟上限）。 */
+export interface OAuthPollTimeout {
+  status: 'timeout'
+  message: string
+}
+
+export type OAuthPollResponse = OAuthPollWaiting | OAuthPollSuccess | OAuthPollError | OAuthPollTimeout
 
 // ---- 新增端点（M2+，后端实现随后续里程碑补齐） ----
 
@@ -326,10 +338,11 @@ export interface BatchActionResponse {
   results: BatchActionResult[]
 }
 
-/** GET /api/logs 单行。 */
+/** GET /api/logs 单行（M5：契约 §2.4 + action 维度）。 */
 export interface LogLine {
   at: string
   level: 'info' | 'warn' | 'error'
+  action: string
   message: string
 }
 

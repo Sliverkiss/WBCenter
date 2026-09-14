@@ -26,8 +26,11 @@ const err = (status: number, error: string) => json({ error }, status)
 
 // 模拟会话状态：login 成功后置 true；resetMockState 在每用例间复位。
 let authed = true
+// OAuth 轮询计数：start 时清零，驱动 waiting→waiting→success 序列。
+let oauthPollCount = 0
 export function resetMockState() {
   authed = true
+  oauthPollCount = 0
   mockTasks = mockSchedulerTasks.map(t => ({ ...t }))
 }
 
@@ -139,9 +142,17 @@ export const handlers = [
   http.post('/api/oauth/start', async ({ request }) => {
     const body = (await request.json()) as { region?: string }
     if (body.region !== 'cn' && body.region !== 'global') return err(502, '未知区域')
-    return json({ id: 'mock-flow-1', url: 'https://copilot.tencent.com/oauth/authorize?state=mock' })
+    oauthPollCount = 0
+    const host = body.region === 'global' ? 'www.workbuddy.ai' : 'copilot.tencent.com'
+    return json({ id: 'mock-flow-1', url: `https://${host}/oauth/authorize?state=mock` })
   }),
-  http.post('/api/oauth/:id/poll', () => json({ status: 'success', uid: 'u-1003', nickname: '新账号' })),
+  // M5：默认轮询序列 waiting→waiting→success（模拟真实设备授权节奏）；
+  // 测试可用 server.use 覆盖为 error/timeout 终态。
+  http.post('/api/oauth/:id/poll', () => {
+    oauthPollCount++
+    if (oauthPollCount < 3) return json({ status: 'waiting' })
+    return json({ status: 'success', uid: 'u-1003', nickname: '新账号' })
+  }),
 
   // ---- 新增端点（M2+ 契约，后端未实现，mock 先行） ----
   http.post('/api/probe', () => (authed ? json(probeResponse) : unauthorized())),

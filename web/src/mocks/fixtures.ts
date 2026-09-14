@@ -198,8 +198,11 @@ export const batchActionResponse: BatchActionResponse = {
 
 export const logs: LogsResponse = {
   lines: [
-    { at: '2026-09-14T08:30:00+08:00', level: 'info', message: '账号 u-1001 签到成功' },
-    { at: '2026-09-14T08:29:10+08:00', level: 'warn', message: '账号 u-1002 上游会话失效（12153）' },
+    { at: '2026-09-14T08:30:00+08:00', level: 'info', action: 'run', message: '账号 u-1001 签到成功' },
+    { at: '2026-09-14T08:29:10+08:00', level: 'warn', action: 'probe', message: '账号 u-1002 上游会话失效（12153）' },
+    { at: '2026-09-14T08:28:00+08:00', level: 'error', action: 'oauth', message: 'OAuth 轮询失败（region=cn）: 上游 503' },
+    { at: '2026-09-14T08:27:00+08:00', level: 'info', action: 'login', message: '登录成功（来源 127.0.0.1）' },
+    { at: '2026-09-14T08:26:00+08:00', level: 'info', action: 'batch', message: '一键任务 checkin：4 账号，失败 1' },
   ],
 }
 
