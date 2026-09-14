@@ -186,12 +186,14 @@ func TestStatsSummaryAutomationRunsToday(t *testing.T) {
 	fake := &fakeStatsUpstream{}
 	svc := newStatsService(t, nil, fake)
 	st := svc.State()
+	// 锚定今天中午，避免跨午夜运行时「1 小时前」落入昨天的边界脆弱性。
 	now := time.Now()
-	yesterday := now.Add(-26 * time.Hour)
+	noon := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
+	yesterday := noon.Add(-26 * time.Hour)
 	st.InjectRuns([]RunRecord{
-		{At: now.Add(-time.Hour), Action: "checkin", OK: true, Message: "成功 3，失败 0"},
-		{At: now.Add(-2 * time.Hour), Action: "travel", OK: true, Message: "成功 2，失败 0"},
-		{At: now.Add(-3 * time.Hour), Action: "checkin", OK: false, Message: "上游失败"},
+		{At: noon.Add(-time.Hour), Action: "checkin", OK: true, Message: "成功 3，失败 0"},
+		{At: noon.Add(-2 * time.Hour), Action: "travel", OK: true, Message: "成功 2，失败 0"},
+		{At: noon.Add(-3 * time.Hour), Action: "checkin", OK: false, Message: "上游失败"},
 		{At: yesterday, Action: "checkin", OK: true, Message: "昨天的不计入"},
 	})
 	sum := svc.StatsSummary(context.Background())
@@ -223,7 +225,7 @@ func TestStatsSummaryHandlerShape(t *testing.T) {
 	if body.AccountsTotal != 1 || body.CreditsCurrentTotal != 100 || body.CreditsTodayRemainingTotal != 7 {
 		t.Errorf("契约字段错误: %+v", body)
 	}
-	if body.GeneratedAt == "" {
+	if body.GeneratedAt.IsZero() {
 		t.Error("generated_at 缺省")
 	}
 }

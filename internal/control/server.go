@@ -60,6 +60,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/accounts/{uid}/actions/{action}", s.accountAction)
 	mux.HandleFunc("POST /api/probe", s.probe)
 	mux.HandleFunc("POST /api/batch-actions", s.batchActions)
+	mux.HandleFunc("GET /api/stats/summary", s.statsSummary)
 	mux.HandleFunc("POST /api/oauth/start", s.oauthStart)
 	mux.HandleFunc("POST /api/oauth/{id}/poll", s.oauthPoll)
 	mux.Handle("/", s.static)
@@ -415,6 +416,11 @@ func (s *Server) batchActions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+// statsSummary 统计汇总（契约 §2.2）。
+func (s *Server) statsSummary(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.svc.StatsSummary(r.Context()))
 }
 
 func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {

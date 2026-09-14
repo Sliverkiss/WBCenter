@@ -215,6 +215,14 @@ func (s *State) Runs() []RunRecord {
 	return append(make([]RunRecord, 0, len(s.doc.Runs)), s.doc.Runs...)
 }
 
+// InjectRuns 仅供测试注入运行记录（不落盘，测试进程内有效）。
+// 生产路径的记录写入始终走 Complete。
+func (s *State) InjectRuns(runs []RunRecord) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.doc.Runs = append([]RunRecord(nil), runs...)
+}
+
 func validateMockSchedulerTask(name, cron, prompt string) error {
 	if len([]rune(name)) == 0 || len([]rune(name)) > 100 {
 		return fmt.Errorf("任务名称需为 1 至 100 个字符")

@@ -83,6 +83,8 @@ type Service struct {
 	prober ProbeUpstream
 	// batcher 用于测试替换 BatchActions 的上游调用；生产为 nil，走 s.up。
 	batcher BatchUpstream
+	// creditsFetcher 用于测试替换 StatsSummary 的积分聚合；生产为 nil，走 creditFor。
+	creditsFetcher creditsFetcher
 	// lastProbe 是最近一次 POST /api/probe 的聚合结果；供 /api/overview 的
 	// session_dead 卡片读取，未运行过探测时为空。
 	lastProbe []ProbeResult
