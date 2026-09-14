@@ -84,7 +84,7 @@ test('Automation 渲染最近运行记录', async () => {
     runs: [{ ok: true, action: '签到', message: '全部成功' }],
   } : {})
   render(<Automation onNotice={() => undefined} />)
-  await waitFor(() => expect(screen.getByText('全部成功')).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByText((_c, el) => el?.className === 'run' && el.textContent?.includes('全部成功') === true)).toBeInTheDocument())
   expect(screen.getByText('成功')).toBeInTheDocument()
 })
 
@@ -96,7 +96,7 @@ test('Scheduler 渲染 Mock 表单与上游只读表', async () => {
     return {}
   })
   render(<Scheduler />)
-  await waitFor(() => expect(screen.getByText('每日摘要')).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByDisplayValue('每日摘要')).toBeInTheDocument())
   expect(screen.getByText('创建 Mock 云端任务')).toBeInTheDocument()
   expect(screen.getByText('上游真实任务（只读）')).toBeInTheDocument()
 })
