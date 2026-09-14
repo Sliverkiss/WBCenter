@@ -68,7 +68,8 @@ test('Accounts 探测结果：12153 账号渲染会话死徽标', async () => {
   fireEvent.click(screen.getByRole('button', { name: /全量探测/ }))
   await waitFor(() => {
     const card = screen.getByText('阿蓝').closest('.account-card') as HTMLElement
-    expect(within(card).getByText(/会话失效/)).toBeInTheDocument()
+    // 徽标精确匹配（错误文案 "上游会话失效（12153）" 也会命中正则，需区分）。
+    expect(within(card).getByText('会话失效')).toBeInTheDocument()
   })
 })
 
