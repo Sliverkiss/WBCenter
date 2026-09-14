@@ -168,10 +168,25 @@ type Service struct {
 	oauth OAuthUpstream
 	// now 时间源，测试可替换以模拟轮询超时。
 	now func() time.Time
+	// logs 面板运行日志环形缓冲（M5，容量 500）。
+	logs *logBuffer
 }
 
 func NewService(cfg Config, store *authstore.Store, up *upstream.Client, state *State) *Service {
-	return &Service{cfg: cfg, store: store, up: up, state: state, accountLocks: map[string]*sync.Mutex{}, logins: map[string]loginFlow{}}
+	return &Service{cfg: cfg, store: store, up: up, state: state, accountLocks: map[string]*sync.Mutex{}, logins: map[string]loginFlow{}, logs: newLogBuffer(500, cfg.Timezone)}
+}
+
+// Logf 记录一条面板运行日志（格式化后脱敏落环形缓冲）。
+func (s *Service) Logf(level, action, format string, args ...any) {
+	s.logs.add(level, action, fmt.Sprintf(format, args...))
+}
+
+// Logs 返回最近 limit 条运行日志（新→旧）；limit<=0 按默认 100。
+func (s *Service) Logs(limit int) []logLine {
+	if limit <= 0 {
+		limit = 100
+	}
+	return s.logs.snapshot(limit)
 }
 // ModelsUpstream 是 Models/ModelPricing 所依赖的上游最小接口。
 // 生产实现是 *upstream.Client，测试用桩替换以验证逐账号降级语义。
@@ -636,6 +651,7 @@ func (s *Service) StartOAuth(region string) (string, string, error) {
 	s.mu.Lock()
 	s.logins[id] = loginFlow{Region: r, State: state, URL: url, Created: s.nowFunc()(), Status: oauthStatusWaiting}
 	s.mu.Unlock()
+	s.Logf("info", "oauth", "发起 OAuth 授权（region=%s）", r)
 	return id, url, nil
 }
 
@@ -667,6 +683,7 @@ func (s *Service) PollOAuth(ctx context.Context, id string) (map[string]any, err
 		s.mu.Lock()
 		s.logins[id] = flow
 		s.mu.Unlock()
+		s.Logf("warn", "oauth", "OAuth 授权超时（region=%s）", flow.Region)
 		return map[string]any{"status": oauthStatusTimeout, "message": flow.Message}, nil
 	}
 	a, err := s.oauthUp().PollLogin(flow.Region, flow.State)
@@ -676,6 +693,7 @@ func (s *Service) PollOAuth(ctx context.Context, id string) (map[string]any, err
 		s.mu.Lock()
 		s.logins[id] = flow
 		s.mu.Unlock()
+		s.Logf("error", "oauth", "OAuth 轮询失败（region=%s）: %s", flow.Region, err)
 		return map[string]any{"status": oauthStatusError, "message": flow.Message}, nil
 	}
 	if a == nil {
@@ -693,6 +711,7 @@ func (s *Service) PollOAuth(ctx context.Context, id string) (map[string]any, err
 	s.mu.Lock()
 	s.logins[id] = flow
 	s.mu.Unlock()
+	s.Logf("info", "oauth", "OAuth 登录成功，账号 %s（%s）已入池", a.UID, a.Nickname)
 	return map[string]any{"status": oauthStatusSuccess, "uid": a.UID, "nickname": a.Nickname}, nil
 }
 
@@ -739,7 +758,13 @@ func (s *Service) Run(ctx context.Context, action, uid string) (string, error) {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	return fmt.Sprintf("成功 %d，失败 %d", ok, failed), nil
+	msg := fmt.Sprintf("成功 %d，失败 %d", ok, failed)
+	level := "info"
+	if failed > 0 {
+		level = "warn"
+	}
+	s.Logf(level, "run", "动作 %s（uid=%s）: %s", action, uid, msg)
+	return msg, nil
 }
 func (s *Service) Tick(ctx context.Context) {
 	for _, a := range s.state.ClaimDue(time.Now()) {

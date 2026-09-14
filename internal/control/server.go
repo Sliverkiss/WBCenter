@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/stats/summary", s.statsSummary)
 	mux.HandleFunc("POST /api/oauth/start", s.oauthStart)
 	mux.HandleFunc("POST /api/oauth/{id}/poll", s.oauthPoll)
+	mux.HandleFunc("GET /api/logs", s.logs)
 	mux.Handle("/", s.static)
 	return s.headers(s.auth(mux))
 }
@@ -160,6 +162,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		}
 		attempt.count++
 		s.attempts[key] = attempt
+		s.svc.Logf("warn", "login", "登录失败（来源 %s，第 %d 次）", key, attempt.count)
 		jsonErr(w, http.StatusUnauthorized, "用户名或密码错误")
 		return
 	}
@@ -170,6 +173,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sessions[token] = session{expires: time.Now().Add(12 * time.Hour)}
 	delete(s.attempts, key)
+	s.svc.Logf("info", "login", "登录成功（来源 %s）", key)
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 43200})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
@@ -456,6 +460,17 @@ func (s *Server) oauthPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, res)
+}
+
+// logs 契约 §2.4 + M5：环形缓冲快照（新→旧），?limit= 默认 100。
+func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	writeJSON(w, 200, map[string]any{"lines": s.svc.Logs(limit)})
 }
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if r.Body == nil {

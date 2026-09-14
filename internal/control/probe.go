@@ -98,6 +98,20 @@ func (s *Service) Probe(ctx context.Context) ([]ProbeResult, error) {
 	s.mu.Lock()
 	s.lastProbe = results
 	s.mu.Unlock()
+	failed, dead := 0, 0
+	for _, r := range results {
+		if r.Error != "" {
+			failed++
+		}
+		if r.SessionDead {
+			dead++
+		}
+	}
+	level := "info"
+	if failed > 0 {
+		level = "warn"
+	}
+	s.Logf(level, "probe", "全量探测完成：%d 账号，失败 %d，会话失效 %d", len(results), failed, dead)
 	return results, nil
 }
 

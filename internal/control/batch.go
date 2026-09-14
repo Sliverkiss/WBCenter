@@ -72,6 +72,17 @@ func (s *Service) BatchActions(ctx context.Context, action string, uids []string
 			break
 		}
 	}
+	failed := 0
+	for _, r := range out {
+		if !r.OK {
+			failed++
+		}
+	}
+	level := "info"
+	if failed > 0 {
+		level = "warn"
+	}
+	s.Logf(level, "batch", "一键任务 %s：%d 账号，失败 %d", action, len(out), failed)
 	return out, nil
 }
 
