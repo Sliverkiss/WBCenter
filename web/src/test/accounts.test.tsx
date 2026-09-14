@@ -105,12 +105,12 @@ test('Accounts 探测结果：未签到账号渲染未签到', async () => {
 
 test('Accounts 探测按钮 pending 期间禁用并显示进度文案', async () => {
   // 让 probe 永不完结：拦截成一个 pending Promise 之后立即断言按钮状态。
-  let resolveProbe: ((r: ProbeResponse) => void) | null = null
-  server.use(
-    http.post('/api/probe', () => new Promise<Response>(res => {
-      resolveProbe = (r: ProbeResponse) => res(HttpResponse.json(r))
-    })),
-  )
+  // resolver 通过 holder 对象传递，规避 TS 对闭包赋值的控制流收窄。
+  const holder: { resolve: (r: ProbeResponse) => void } = { resolve: () => undefined }
+  const gate = new Promise<ProbeResponse>(res => {
+    holder.resolve = res
+  })
+  server.use(http.post('/api/probe', async () => HttpResponse.json(await gate)))
   render(<Accounts onNotice={noop} />)
   await waitFor(() => expect(screen.getByText('阿明')).toBeInTheDocument())
   const btn = screen.getByRole('button', { name: /全量探测/ })
@@ -120,7 +120,7 @@ test('Accounts 探测按钮 pending 期间禁用并显示进度文案', async ()
     expect(btn.textContent).toMatch(/探测中/)
   })
   // 收尾：放行 Promise，避免悬挂请求污染后续用例。
-  resolveProbe?.({ results: [] })
+  holder.resolve({ results: [] })
   await waitFor(() => expect(btn).not.toBeDisabled())
 })
 
