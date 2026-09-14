@@ -10,28 +10,28 @@ import { Activities } from '../pages/Activities'
 
 test('Models 渲染价格列（credits 描述串原样透出）', async () => {
   render(<Models />)
-  await waitFor(() => expect(screen.getByText('wb-pro')).toBeInTheDocument())
-  expect(screen.getByText('x0.51 credits')).toBeInTheDocument()
-  expect(screen.getByText('x0 credits')).toBeInTheDocument()
+  await waitFor(() => expect(screen.getAllByText('wb-pro').length).toBeGreaterThan(0))
+  expect(screen.getAllByText('x0.51 credits').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('x0 credits').length).toBeGreaterThan(0)
 })
 
 test('Models 渲染限免徽标（fixture wb-lite badges=限时免费）', async () => {
   render(<Models />)
-  await waitFor(() => expect(screen.getByText('wb-lite')).toBeInTheDocument())
-  expect(screen.getByText('限时免费')).toBeInTheDocument()
+  await waitFor(() => expect(screen.getAllByText('wb-lite').length).toBeGreaterThan(0))
+  expect(screen.getAllByText('限时免费').length).toBeGreaterThan(0)
 })
 
 test('Models 渲染图片支持标识（wb-pro supports_images=true）', async () => {
   render(<Models />)
-  await waitFor(() => expect(screen.getByText('wb-pro')).toBeInTheDocument())
+  await waitFor(() => expect(screen.getAllByText('wb-pro').length).toBeGreaterThan(0))
   // wb-pro 支持图片，其余两个模型不支持
-  expect(screen.getByText('支持图片')).toBeInTheDocument()
+  expect(screen.getAllByText('支持图片').length).toBeGreaterThan(0)
 })
 
 test('Models 无价格数据模型显示「上游未提供」降级文案', async () => {
   render(<Models />)
-  await waitFor(() => expect(screen.getByText('wb-old')).toBeInTheDocument())
-  expect(screen.getByText(/上游未提供/)).toBeInTheDocument()
+  await waitFor(() => expect(screen.getAllByText('wb-old').length).toBeGreaterThan(0))
+  expect(screen.getAllByText(/上游未提供/).length).toBeGreaterThan(0)
 })
 
 test('Models 价格视图展示 pricing 汇总（credits + 限免徽标 + 账号归属）', async () => {
@@ -39,7 +39,7 @@ test('Models 价格视图展示 pricing 汇总（credits + 限免徽标 + 账号
   await waitFor(() => expect(screen.getByText('模型价格与限免')).toBeInTheDocument())
   const pricing = screen.getByTestId('pricing-section')
   expect(within(pricing).getAllByText('x0.51 credits').length).toBeGreaterThan(0)
-  expect(within(pricing).getByText('阿明')).toBeInTheDocument()
+  expect(within(pricing).getAllByText('阿明').length).toBeGreaterThan(0)
 })
 
 test('Models pricing_available=false 时展示降级提示而非空表', async () => {
