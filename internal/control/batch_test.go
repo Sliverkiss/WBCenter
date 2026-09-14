@@ -3,12 +3,10 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"workbuddy-control-center/internal/authstore"
 	"workbuddy-control-center/internal/upstream"
@@ -74,7 +72,7 @@ func newBatchService(t *testing.T, accounts []*authstore.Account, up BatchUpstre
 func TestBatchActionsAllAccounts(t *testing.T) {
 	fake := newFakeBatchUpstream()
 	svc := newBatchService(t, []*authstore.Account{
-		healthyAccount("u-b1"), healthyAccount("u-b2"), healthyAccount("u-b3"),
+		healthyAccount("u-bat-1"), healthyAccount("u-bat-2"), healthyAccount("u-bat-3"),
 	}, fake)
 	res, err := svc.BatchActions(context.Background(), "checkin", nil)
 	if err != nil {
@@ -91,7 +89,7 @@ func TestBatchActionsAllAccounts(t *testing.T) {
 			t.Errorf("账号 %s 缺 message: %+v", r.UID, r)
 		}
 	}
-	if fake.checkinCalls["u-b1"] != 1 || fake.checkinCalls["u-b2"] != 1 || fake.checkinCalls["u-b3"] != 1 {
+	if fake.checkinCalls["u-bat-1"] != 1 || fake.checkinCalls["u-bat-2"] != 1 || fake.checkinCalls["u-bat-3"] != 1 {
 		t.Errorf("checkin 调用数 = %v, want 每账号 1 次", fake.checkinCalls)
 	}
 }
@@ -100,7 +98,7 @@ func TestBatchActionsAllAccounts(t *testing.T) {
 func TestBatchActionsDisabledSkipped(t *testing.T) {
 	fake := newFakeBatchUpstream()
 	svc := newBatchService(t, []*authstore.Account{
-		healthyAccount("u-active"), disabledAccount("u-off"),
+		healthyAccount("u-act-1"), disabledAccount("u-off-1"),
 	}, fake)
 	res, err := svc.BatchActions(context.Background(), "checkin", nil)
 	if err != nil {
@@ -109,9 +107,9 @@ func TestBatchActionsDisabledSkipped(t *testing.T) {
 	var active, off *BatchActionResult
 	for i := range res {
 		switch res[i].UID {
-		case "u-active":
+		case "u-act-1":
 			active = &res[i]
-		case "u-off":
+		case "u-off-1":
 			off = &res[i]
 		}
 	}
@@ -124,11 +122,11 @@ func TestBatchActionsDisabledSkipped(t *testing.T) {
 	if off != nil && off.Message == "" {
 		t.Errorf("禁用账号应有跳过说明文案: %+v", off)
 	}
-	if fake.checkinCalls["u-off"] != 0 {
-		t.Errorf("禁用账号不应调用上游, got %d 次", fake.checkinCalls["u-off"])
+	if fake.checkinCalls["u-off-1"] != 0 {
+		t.Errorf("禁用账号不应调用上游, got %d 次", fake.checkinCalls["u-off-1"])
 	}
-	if fake.checkinCalls["u-active"] != 1 {
-		t.Errorf("启用账号应调用 1 次, got %d", fake.checkinCalls["u-active"])
+	if fake.checkinCalls["u-act-1"] != 1 {
+		t.Errorf("启用账号应调用 1 次, got %d", fake.checkinCalls["u-act-1"])
 	}
 }
 
@@ -136,13 +134,13 @@ func TestBatchActionsDisabledSkipped(t *testing.T) {
 func TestBatchActionsSingleFailureDoesNotStopOthers(t *testing.T) {
 	fake := newFakeBatchUpstream()
 	fake.checkin = func(a *authstore.Account) error {
-		if a.UID == "u-bad" {
+		if a.UID == "u-bad-1" {
 			return &upstream.Error{Kind: upstream.ErrServer, Status: 503, Msg: "upstream down"}
 		}
 		return nil
 	}
 	svc := newBatchService(t, []*authstore.Account{
-		healthyAccount("u-good"), healthyAccount("u-bad"), healthyAccount("u-good2"),
+		healthyAccount("u-good-1"), healthyAccount("u-bad-1"), healthyAccount("u-good-2"),
 	}, fake)
 	res, err := svc.BatchActions(context.Background(), "checkin", nil)
 	if err != nil {
@@ -154,7 +152,7 @@ func TestBatchActionsSingleFailureDoesNotStopOthers(t *testing.T) {
 	var bad *BatchActionResult
 	okCount := 0
 	for i := range res {
-		if res[i].UID == "u-bad" {
+		if res[i].UID == "u-bad-1" {
 			bad = &res[i]
 		}
 		if res[i].OK {
@@ -168,7 +166,7 @@ func TestBatchActionsSingleFailureDoesNotStopOthers(t *testing.T) {
 		t.Errorf("失败账号应 ok=false 且带 error: %+v", bad)
 	}
 	// 失败账号之后的账号也必须被执行（不中断）。
-	if fake.checkinCalls["u-good2"] != 1 {
+	if fake.checkinCalls["u-good-2"] != 1 {
 		t.Errorf("失败后续账号未执行: %v", fake.checkinCalls)
 	}
 }
@@ -179,7 +177,7 @@ func TestBatchActionsSessionDeadMarked(t *testing.T) {
 	fake.checkin = func(a *authstore.Account) error {
 		return &upstream.Error{Kind: upstream.ErrSessionDead, Status: 401, Msg: "code=12153"}
 	}
-	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-dead")}, fake)
+	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-dead-1")}, fake)
 	res, err := svc.BatchActions(context.Background(), "checkin", nil)
 	if err != nil {
 		t.Fatalf("BatchActions: %v", err)
@@ -203,23 +201,23 @@ func TestBatchActionsSessionDeadMarked(t *testing.T) {
 func TestBatchActionsUIDSubset(t *testing.T) {
 	fake := newFakeBatchUpstream()
 	svc := newBatchService(t, []*authstore.Account{
-		healthyAccount("u-s1"), healthyAccount("u-s2"), healthyAccount("u-s3"),
+		healthyAccount("u-sub-1"), healthyAccount("u-sub-2"), healthyAccount("u-sub-3"),
 	}, fake)
-	res, err := svc.BatchActions(context.Background(), "travel", []string{"u-s2", "u-ghost"})
+	res, err := svc.BatchActions(context.Background(), "travel", []string{"u-sub-2", "u-ghost"})
 	if err != nil {
 		t.Fatalf("BatchActions: %v", err)
 	}
 	if len(res) != 1 {
 		t.Fatalf("len(results) = %d, want 1（只有 u-s2 在池内）", len(res))
 	}
-	if res[0].UID != "u-s2" {
+	if res[0].UID != "u-sub-2" {
 		t.Errorf("结果账号 = %s, want u-s2", res[0].UID)
 	}
-	if fake.travelCalls["u-s1"] != 0 || fake.travelCalls["u-s3"] != 0 {
+	if fake.travelCalls["u-sub-1"] != 0 || fake.travelCalls["u-sub-3"] != 0 {
 		t.Errorf("子集外账号不应执行: %v", fake.travelCalls)
 	}
-	if fake.travelCalls["u-s2"] != 1 {
-		t.Errorf("u-s2 应执行 1 次, got %d", fake.travelCalls["u-s2"])
+	if fake.travelCalls["u-sub-2"] != 1 {
+		t.Errorf("u-s2 应执行 1 次, got %d", fake.travelCalls["u-sub-2"])
 	}
 }
 
@@ -230,11 +228,11 @@ func TestBatchActionsRefreshSavesAccount(t *testing.T) {
 		a.AccessToken = "rotated"
 		return nil
 	}
-	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-r1")}, fake)
+	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-rf-01")}, fake)
 	if _, err := svc.BatchActions(context.Background(), "refresh", nil); err != nil {
 		t.Fatalf("BatchActions: %v", err)
 	}
-	got, err := svc.store.Get("u-r1")
+	got, err := svc.store.Get("u-rf-01")
 	if err != nil {
 		t.Fatalf("store.Get: %v", err)
 	}
@@ -246,7 +244,7 @@ func TestBatchActionsRefreshSavesAccount(t *testing.T) {
 // TestBatchActionsUnknownAction 未知动作返回错误。
 func TestBatchActionsUnknownAction(t *testing.T) {
 	fake := newFakeBatchUpstream()
-	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-x")}, fake)
+	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-xx-01")}, fake)
 	_, err := svc.BatchActions(context.Background(), "explode", nil)
 	if err == nil {
 		t.Fatal("未知动作应返回错误")
@@ -256,7 +254,7 @@ func TestBatchActionsUnknownAction(t *testing.T) {
 // TestBatchActionsReadOnly 只读模式拒绝。
 func TestBatchActionsReadOnly(t *testing.T) {
 	fake := newFakeBatchUpstream()
-	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-x")}, fake)
+	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-xx-01")}, fake)
 	svc.cfg.ReadOnly = true
 	_, err := svc.BatchActions(context.Background(), "checkin", nil)
 	if err == nil || !strings.Contains(err.Error(), "只读") {
@@ -270,13 +268,13 @@ func TestBatchActionsReadOnly(t *testing.T) {
 func TestBatchActionsHandlerShape(t *testing.T) {
 	fake := newFakeBatchUpstream()
 	fake.checkin = func(a *authstore.Account) error {
-		if a.UID == "u-h-dead" {
+		if a.UID == "u-hd-dead" {
 			return &upstream.Error{Kind: upstream.ErrSessionDead, Status: 401, Msg: "code=12153"}
 		}
 		return nil
 	}
 	svc := newBatchService(t, []*authstore.Account{
-		healthyAccount("u-h-ok"), disabledAccount("u-h-off"), healthyAccount("u-h-dead"),
+		healthyAccount("u-hd-ok1"), disabledAccount("u-hd-off"), healthyAccount("u-hd-dead"),
 	}, fake)
 	srv := httptest.NewServer(NewServer(svc, http.NotFoundHandler()).Handler())
 	defer srv.Close()
@@ -303,14 +301,14 @@ func TestBatchActionsHandlerShape(t *testing.T) {
 			t.Errorf("缺 nickname: %+v", r)
 		}
 	}
-	if !byUID["u-h-ok"].OK || byUID["u-h-ok"].Skipped {
-		t.Errorf("成功账号: %+v", byUID["u-h-ok"])
+	if !byUID["u-hd-ok1"].OK || byUID["u-hd-ok1"].Skipped {
+		t.Errorf("成功账号: %+v", byUID["u-hd-ok1"])
 	}
-	if !byUID["u-h-off"].Skipped {
-		t.Errorf("禁用账号应 skipped: %+v", byUID["u-h-off"])
+	if !byUID["u-hd-off"].Skipped {
+		t.Errorf("禁用账号应 skipped: %+v", byUID["u-hd-off"])
 	}
-	if !byUID["u-h-dead"].SessionDead {
-		t.Errorf("12153 账号应 session_dead: %+v", byUID["u-h-dead"])
+	if !byUID["u-hd-dead"].SessionDead {
+		t.Errorf("12153 账号应 session_dead: %+v", byUID["u-hd-dead"])
 	}
 }
 
@@ -350,7 +348,7 @@ func TestBatchActionsHandlerUnauthorized(t *testing.T) {
 // TestBatchActionsHandlerReadOnly 只读模式 403。
 func TestBatchActionsHandlerReadOnly(t *testing.T) {
 	fake := newFakeBatchUpstream()
-	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-ro")}, fake)
+	svc := newBatchService(t, []*authstore.Account{healthyAccount("u-ro-01")}, fake)
 	svc.cfg.ReadOnly = true
 	srv := httptest.NewServer(NewServer(svc, http.NotFoundHandler()).Handler())
 	defer srv.Close()
@@ -367,13 +365,13 @@ func TestBatchActionsHandlerReadOnly(t *testing.T) {
 func TestBatchActionsHandlerUIDsSubsetViaHTTP(t *testing.T) {
 	fake := newFakeBatchUpstream()
 	svc := newBatchService(t, []*authstore.Account{
-		healthyAccount("u-p1"), healthyAccount("u-p2"),
+		healthyAccount("u-part-1"), healthyAccount("u-part-2"),
 	}, fake)
 	srv := httptest.NewServer(NewServer(svc, http.NotFoundHandler()).Handler())
 	defer srv.Close()
 	cookie := login(t, srv)
 	res := request(t, srv.Client(), http.MethodPost, srv.URL+"/api/batch-actions",
-		map[string]any{"action": "travel", "uids": []string{"u-p2"}}, cookie, true)
+		map[string]any{"action": "travel", "uids": []string{"u-part-2"}}, cookie, true)
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", res.StatusCode)
@@ -384,10 +382,8 @@ func TestBatchActionsHandlerUIDsSubsetViaHTTP(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Results) != 1 || body.Results[0].UID != "u-p2" {
+	if len(body.Results) != 1 || body.Results[0].UID != "u-part-2" {
 		t.Fatalf("子集结果错误: %+v", body.Results)
 	}
 }
 
-// 防止未使用告警（errors 留给后续断言扩展）。
-var _ = errors.Is

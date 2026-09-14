@@ -59,6 +59,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/automations/{id}/run", s.automationRun)
 	mux.HandleFunc("POST /api/accounts/{uid}/actions/{action}", s.accountAction)
 	mux.HandleFunc("POST /api/probe", s.probe)
+	mux.HandleFunc("POST /api/batch-actions", s.batchActions)
 	mux.HandleFunc("POST /api/oauth/start", s.oauthStart)
 	mux.HandleFunc("POST /api/oauth/{id}/poll", s.oauthPoll)
 	mux.Handle("/", s.static)
@@ -390,6 +391,27 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
 	results, err := s.svc.Probe(ctx)
 	if err != nil {
 		jsonErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+// batchActions 一键批量任务（契约 §2.3）。整批恒 200，单账号失败下沉到 results[].error。
+func (s *Server) batchActions(w http.ResponseWriter, r *http.Request) {
+	if s.svc.Config().ReadOnly {
+		jsonErr(w, http.StatusForbidden, "服务端已开启只读模式")
+		return
+	}
+	var in struct {
+		Action string   `json:"action"`
+		UIDs   []string `json:"uids"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	results, err := s.svc.BatchActions(r.Context(), in.Action, in.UIDs)
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})

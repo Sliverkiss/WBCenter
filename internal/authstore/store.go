@@ -36,6 +36,10 @@ type Account struct {
 	EnterpriseID string `json:"enterpriseId"`
 	Nickname     string `json:"nickname"`
 
+	// Disabled 标记账号被禁用：批量写动作（checkin/travel/refresh）跳过该账号。
+	// 面板不主动写入此字段，由运维手工标记或后续里程碑提供开关（契约 §2.3 约定）。
+	Disabled bool `json:"disabled,omitempty"`
+
 	// FilePath 来源文件绝对路径；仅进程内使用，不序列化到凭证文件。
 	FilePath string `json:"-"`
 }
@@ -195,6 +199,7 @@ func Parse(raw []byte) (*Account, error) {
 				UID          string `json:"uid"`
 				EnterpriseID string `json:"enterpriseId"`
 				Nickname     string `json:"nickname"`
+				Disabled     bool   `json:"disabled"`
 			} `json:"account"`
 		}
 		if err := json.Unmarshal(raw, &n); err != nil {
@@ -208,6 +213,7 @@ func Parse(raw []byte) (*Account, error) {
 			UID:          n.Account.UID,
 			EnterpriseID: n.Account.EnterpriseID,
 			Nickname:     n.Account.Nickname,
+			Disabled:     n.Account.Disabled,
 		}
 	} else {
 		if err := json.Unmarshal(raw, &a); err != nil {
@@ -242,6 +248,7 @@ func (s *Store) Save(a *Account) error {
 			"uid":          a.UID,
 			"enterpriseId": a.EnterpriseID,
 			"nickname":     a.Nickname,
+			"disabled":     a.Disabled,
 		},
 		"auth": map[string]any{
 			"accessToken":  a.AccessToken,
