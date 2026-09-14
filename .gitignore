@@ -37,3 +37,4 @@ web/public/mockServiceWorker.js
 
 # 本地执行体工作目录与里程碑报告（不入库）
 .claude/
+internal/webui/dist/mockServiceWorker.js
