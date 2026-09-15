@@ -27,7 +27,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 # ── 阶段 3：运行镜像 ────────────────────────────────────────────
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata wget \
+RUN apk add --no-cache ca-certificates tzdata wget python3 \
  && adduser -D -u 10001 app \
  && mkdir -p /app /data \
  && chown -R app:app /app /data

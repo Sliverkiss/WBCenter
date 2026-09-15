@@ -1,0 +1,9 @@
+.git
+.gitignore
+.playwright-cli
+web/node_modules
+web/dist
+data
+control-center.json
+*.log
+.DS_Store

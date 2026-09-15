@@ -1,42 +1,69 @@
-# WorkBuddy Control Center
+# WBCenter · WorkBuddy 本地控制台
 
-本地、独立的 WorkBuddy 账号控制台。它遵循 workbuddy2api Issue #61 的边界：
+独立运行的 WorkBuddy 账号管理与自动化控制台，面向本机或私有网络部署。项目遵循 `workbuddy2api` Issue #61 的边界：控制台只读取共享 `auths/` 凭据，直接访问 WorkBuddy 上游，不读取、修改或调用网关的 `config.json`、HTTP 服务或 Docker Socket。
 
-- 只共享 `auths/` 账号凭据目录。
-- 账号、积分、模型、活动和账号云端定时任务均直接请求 WorkBuddy 上游。
-- 不读取、不写入 `workbuddy2api/config.json`，不调用网关 HTTP 接口，不使用 Docker Socket。
+## 功能
 
-## 已实现
+- 本地管理员登录：HttpOnly、SameSite=Strict 会话、同源写校验、登录失败限速。
+- OAuth 添加国内版 / 国际版账号，凭据原子写入 `auths/`；支持多账号列表、刷新、签到、旅行和保活。
+- 积分管理：当前积分、今日套餐额度、已用、剩余；按账号展开上游套餐明细，不伪造本地积分流水。
+- 模型管理：读取上游模型，支持按账号和名称筛选。
+- 活动管理：探测新成长任务；按账号汇总任务数量和全部奖励；查看任务明细；执行已验证的任务完成、回读确认和领奖流程；执行进度、耗时与中文明细日志可查询。
+- 自动化管理：新活动探测、活动任务自动完成、签到、旅行巡检、账号保活，均可启停、调整间隔、立即运行并查看中文运行记录。
+- 账号云端定时任务：只读查询 WorkBuddy 账号自己的云端任务和详情。
+- Mock 任务：云端 scheduler 写入契约尚未稳定时，提供仅保存到本地 `data/state.json` 的创建、编辑、启停和删除骨架。
 
-- 登录保护、HttpOnly + SameSite=Strict 会话、同源写操作校验、登录限速。
-- 国内版和国际版 OAuth 添加账号，凭据原子写入 `auths/`。
-- 账号列表、单账号刷新凭据、签到、旅行巡检。
-- 积分总览和按账号查询。今日区域展示上游“套餐发放、已用、剩余”，不把套餐切片伪造为交易流水。
-- 直接查询每账号可用模型、成长活动任务和新任务探测。
-- 面板自身的持久化定时任务开关、立即执行和运行记录。
-- 每个账号的 WorkBuddy 云端 scheduler 定时任务只读列表，接口为 `/console/as/tasks`。
-- 当上游 scheduler 尚未授权时，提供明确标注的本地 Mock 任务骨架，可创建、编辑、启停和删除；仅写入本控制台的 `data/state.json`，不会向 WorkBuddy 提交任务变更。
+活动自动完成使用上游已验证的任务映射，任务完成后必须重新读取进度才会领奖。未知任务、真实捐款等不可安全自动化的任务会明确标记为人工完成；不会把 HTTP 200 直接当作业务成功。
 
-账号云端 scheduler 的创建 API 为 `/v2/as/scheduler/tasks`。逆向资料没有经认证的请求体契约，且实际账号当前返回 `access_denied`，因此真实云端任务保持只读。Mock 数据不会自动同步到上游，待权限和契约确认后再以独立适配器接入。
+## 与网关的关系
 
-## 本机运行
+```text
+浏览器 → WBCenter 控制台 → WorkBuddy 上游
+                         └→ 只读挂载 workbuddy2api/auths
+```
 
-复制配置并填写一个强密码：
+控制台与网关独立部署、独立升级。Compose 为活动任务复用网关仓库中已经验证的 `scripts/task_runner.py`，脚本目录以只读方式挂载；不会修改网关源码。部署目录默认结构如下：
+
+```text
+Workbuddy/
+├── workbuddy2api/
+└── workbuddy-control-center/
+```
+
+## 本机部署
+
+准备 Docker、Docker Compose 和相邻的 `workbuddy2api` 仓库。首次部署生成本地配置并设置唯一强密码：
 
 ```sh
 cp config.example.json control-center.json
-# 编辑 control-center.json：至少设置 password 和 auth_dir
-docker build -t workbuddy-control-center .
-docker run --rm -p 127.0.0.1:8787:8787 \
-  -e WBCC_PASSWORD='替换为强密码' \
-  -e WBCC_AUTH_DIR=/auths \
-  -v /绝对路径/workbuddy2api/auths:/auths \
-  -v "$PWD/data:/data" \
-  workbuddy-control-center
+# 编辑 control-center.json：至少替换 password，并确认 auth_dir 指向 ../workbuddy2api/auths
+chmod 600 control-center.json
+docker compose up -d --build
 ```
 
-访问 `http://127.0.0.1:8787`。使用 Compose 时，以本机环境变量注入密码：`WBCC_PASSWORD='独立强密码' docker compose up -d --build`。默认只绑定本机；若经反向代理开放到局域网或公网，请使用 HTTPS、独立强密码和受限访问策略。
+访问 <http://127.0.0.1:8787>。配置文件、账号凭据、运行状态和日志均已排除在 Git 及 Docker 构建上下文之外。默认仅监听本机；通过反向代理或 Tailnet 暴露时，应使用 HTTPS 和访问控制。
 
-## 自动化所有权
+也可以用环境变量覆盖配置：`WBCC_LISTEN`、`WBCC_AUTH_DIR`、`WBCC_DATA_DIR`、`WBCC_USERNAME`、`WBCC_PASSWORD`、`WBCC_READ_ONLY`、`WBCC_TIMEZONE`、`WBCC_TIMEOUT_SECONDS`、`WBCC_TASK_RUNNER`。生产环境建议通过环境变量或受限权限的本地配置注入密码，不要将密码写入 README、日志或提交记录。
 
-为了避免同一账号双跑，控制台默认只启用“新活动探测”。如果要让本面板接管签到、旅行、保活，需要先在部署层关闭网关中同名定时项；这不改网关源码，但必须由操作者确认完成。
+## 自动化默认值
+
+首次启动默认启用“新活动探测”和“活动任务自动完成”（每日一次），其他自动化按当前配置决定。签到、旅行、保活和活动完成都会产生真实账号行为；启用前请确认没有其他服务执行相同任务，避免重复上报或触发频控。开启 `WBCC_READ_ONLY=true` 后，所有写操作和自动化立即被拒绝。
+
+## 安全边界
+
+- 仅使用本人授权的 WorkBuddy 账号，并妥善保护 `auths/` 中的明文凭据。
+- 不提交 `control-center.json`、`auths/`、`data/`、令牌、Cookie、管理员密码或运行日志。
+- 所有写操作要求管理员会话和同源请求；活动任务代码使用白名单，不接受任意上游路径或 payload。
+- 云端 scheduler 当前保持只读；Mock 任务不会同步到 WorkBuddy。
+
+## 开发与验证
+
+```sh
+# 前端
+cd web && npm ci && npm run build
+
+# Go（需要 Go ≥ 1.23）
+go test ./...
+```
+
+项目采用 MIT 许可证。WorkBuddy 上游接口为非公开、可能变化的客户端接口，使用时请遵守目标平台服务条款和所在地法律。

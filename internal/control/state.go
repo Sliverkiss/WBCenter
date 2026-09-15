@@ -48,6 +48,7 @@ type MockSchedulerTask struct {
 type persistentState struct {
 	Automations    map[string]Automation        `json:"automations"`
 	SeenTasks      map[string]time.Time         `json:"seen_tasks"`
+	RecentTasks    map[string]time.Time         `json:"recent_tasks"`
 	ProbedAccounts map[string]bool              `json:"probed_accounts"`
 	Runs           []RunRecord                  `json:"runs"`
 	MockTasks      map[string]MockSchedulerTask `json:"mock_scheduler_tasks"`
@@ -66,6 +67,7 @@ func NewState(dataDir string) (*State, error) {
 	s := &State{path: filepath.Join(dataDir, "state.json")}
 	s.doc.Automations = map[string]Automation{}
 	s.doc.SeenTasks = map[string]time.Time{}
+	s.doc.RecentTasks = map[string]time.Time{}
 	s.doc.ProbedAccounts = map[string]bool{}
 	s.doc.MockTasks = map[string]MockSchedulerTask{}
 	if raw, err := os.ReadFile(s.path); err == nil {
@@ -77,6 +79,9 @@ func NewState(dataDir string) (*State, error) {
 	if s.doc.SeenTasks == nil {
 		s.doc.SeenTasks = map[string]time.Time{}
 	}
+	if s.doc.RecentTasks == nil {
+		s.doc.RecentTasks = map[string]time.Time{}
+	}
 	if s.doc.ProbedAccounts == nil {
 		s.doc.ProbedAccounts = map[string]bool{}
 	}
@@ -86,6 +91,7 @@ func NewState(dataDir string) (*State, error) {
 	if len(s.doc.Automations) == 0 {
 		for _, a := range []Automation{
 			{ID: "activity-probe", Name: "新活动探测", Action: "activity_probe", Enabled: true, EveryMinute: 30},
+			{ID: "activity-complete", Name: "活动任务自动完成", Action: "activity_complete", Enabled: true, EveryMinute: 1440},
 			{ID: "checkin", Name: "每日签到", Action: "checkin", Enabled: false, EveryMinute: 1440},
 			{ID: "travel", Name: "旅行巡检", Action: "travel", Enabled: false, EveryMinute: 120},
 			{ID: "keepalive", Name: "账号保活", Action: "refresh", Enabled: false, EveryMinute: 720},
@@ -95,6 +101,16 @@ func NewState(dataDir string) (*State, error) {
 			}
 			s.doc.Automations[a.ID] = a
 		}
+		if err := s.saveLocked(); err != nil {
+			return nil, err
+		}
+	}
+	// Existing installations receive newly introduced automation definitions
+	// without resetting any user-edited task.
+	if _, ok := s.doc.Automations["activity-complete"]; !ok {
+		a := Automation{ID: "activity-complete", Name: "活动任务自动完成", Action: "activity_complete", Enabled: true, EveryMinute: 1440}
+		a.NextRunAt = time.Now().Add(24 * time.Hour)
+		s.doc.Automations[a.ID] = a
 		if err := s.saveLocked(); err != nil {
 			return nil, err
 		}
@@ -191,6 +207,13 @@ func (s *State) MarkSeenBatch(accountUID string, keys []string) map[string]bool 
 	wasProbed := s.doc.ProbedAccounts[accountUID]
 	found := make(map[string]bool, len(keys))
 	changed := false
+	now := time.Now()
+	for key, seenAt := range s.doc.RecentTasks {
+		if now.Sub(seenAt) > 7*24*time.Hour {
+			delete(s.doc.RecentTasks, key)
+			changed = true
+		}
+	}
 	for _, key := range keys {
 		if key == "" {
 			continue
@@ -198,8 +221,11 @@ func (s *State) MarkSeenBatch(accountUID string, keys []string) map[string]bool 
 		if _, exists := s.doc.SeenTasks[key]; exists {
 			continue
 		}
-		s.doc.SeenTasks[key] = time.Now()
+		s.doc.SeenTasks[key] = now
 		found[key] = wasProbed
+		if wasProbed {
+			s.doc.RecentTasks[key] = now
+		}
 		changed = true
 	}
 	s.doc.ProbedAccounts[accountUID] = true
@@ -207,6 +233,13 @@ func (s *State) MarkSeenBatch(accountUID string, keys []string) map[string]bool 
 		_ = s.saveLocked()
 	}
 	return found
+}
+
+func (s *State) IsRecentTask(key string, within time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seenAt, ok := s.doc.RecentTasks[key]
+	return ok && within > 0 && time.Since(seenAt) <= within
 }
 
 func (s *State) Runs() []RunRecord {

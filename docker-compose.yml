@@ -9,10 +9,12 @@ services:
       WBCC_AUTH_DIR: "/auths"
       WBCC_DATA_DIR: "/data"
       WBCC_USERNAME: "admin"
-      # 从本机环境注入，未设置时 Compose 会拒绝启动。
-      WBCC_PASSWORD: "${WBCC_PASSWORD:?请先设置 WBCC_PASSWORD}"
+      WBCC_TASK_RUNNER: "/gateway-scripts/task_runner.py"
     volumes:
+      - ./control-center.json:/app/control-center.json:ro
       # 唯一与网关共享的内容：WorkBuddy OAuth 凭据。
       - ../workbuddy2api/auths:/auths
+      # 复用上游已吸收并验证过的成长任务 runner；只读挂载，不改网关代码。
+      - ../workbuddy2api/scripts:/gateway-scripts:ro
       - ./data:/data
     restart: unless-stopped

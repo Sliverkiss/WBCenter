@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -393,6 +394,10 @@ func (c *Client) StartLogin(region Region) (state, authURL string, err error) {
 	if url == "" {
 		url = base + "/login?state=" + st.State + "&platform=CLI"
 	}
+	parsed, parseErr := neturl.Parse(url)
+	if parseErr != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil {
+		return "", "", fmt.Errorf("授权响应包含不安全的登录地址")
+	}
 	return st.State, url, nil
 }
 
@@ -705,11 +710,14 @@ func findPackageRows(v any) []map[string]any {
 // GrowthTask is deliberately loose because the reverse-engineered response is
 // not a stable public schema. Raw tokens and headers are never returned.
 type GrowthTask struct {
-	Code   string         `json:"code"`
-	Name   string         `json:"name"`
-	Status string         `json:"status"`
-	Reward float64        `json:"reward"`
-	Raw    map[string]any `json:"raw,omitempty"`
+	Code         string         `json:"code"`
+	Name         string         `json:"name"`
+	Status       string         `json:"status"`
+	AcceptStatus string         `json:"accept_status"`
+	Progress     float64        `json:"progress"`
+	Target       float64        `json:"target"`
+	Reward       float64        `json:"reward"`
+	Raw          map[string]any `json:"raw,omitempty"`
 }
 
 func (c *Client) GrowthTasks(a *authstore.Account) ([]GrowthTask, error) {
@@ -729,7 +737,13 @@ func (c *Client) GrowthTasks(a *authstore.Account) ([]GrowthTask, error) {
 		if code == "" && name == "" {
 			continue
 		}
-		out = append(out, GrowthTask{Code: code, Name: name, Status: firstText(row, "status", "state", "task_status"), Reward: firstFloat(row, "reward", "reward_credit", "rewardCredit"), Raw: row})
+		progress, _ := row["progress"].(map[string]any)
+		acceptStatus := firstText(row, "accept_status", "acceptStatus")
+		status := firstText(row, "status", "state", "task_status")
+		if status == "" {
+			status = acceptStatus
+		}
+		out = append(out, GrowthTask{Code: code, Name: name, Status: status, AcceptStatus: acceptStatus, Progress: firstFloat(progress, "current"), Target: firstFloat(progress, "target"), Reward: firstFloat(row, "reward", "reward_credit", "rewardCredit"), Raw: row})
 	}
 	return out, nil
 }
