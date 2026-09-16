@@ -25,11 +25,19 @@ func Handler() (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	return handlerFor(sub), nil
+}
+
+// handlerFor 基于给定的 dist 文件系统构造 SPA handler。
+//
+// 独立成函数是为了能用 testing/fstest.MapFS 精确覆盖回落规则
+// （哪些路径该回落 index.html、哪些该直接 404），不必依赖仓库里恰好放了什么产物。
+func handlerFor(sub fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(sub))
 	index, err := fs.ReadFile(sub, "index.html")
 	if err != nil {
 		// 前端未构建（只有占位文件）：返回可读的提示页而不是 404 迷宫。
-		return http.HandlerFunc(notBuilt), nil
+		return http.HandlerFunc(notBuilt)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clean := path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/"))
@@ -47,9 +55,18 @@ func Handler() (http.Handler, error) {
 			fileServer.ServeHTTP(w, r)
 			return
 		}
+		// /assets/ 下是 Vite 产物（文件名带内容哈希），不存在就是真的不存在：
+		// 回落到 index.html 会让浏览器把 text/html 的 HTML 当成 JS/CSS 模块，
+		// 叠加 X-Content-Type-Options: nosniff 后只剩一片空白页和一条 MIME 报错，
+		// 既看不出「产物缺失」，也拿不到 404 去定位。前端路由不会以 /assets/ 开头，
+		// 这个前缀不需要 SPA 回落。
+		if strings.HasPrefix(clean, "/assets/") {
+			http.NotFound(w, r)
+			return
+		}
 		// 其余一律回落 index.html（前端路由 / 深链接刷新）。
 		serveIndex(w, index)
-	}), nil
+	})
 }
 
 func serveIndex(w http.ResponseWriter, index []byte) {
