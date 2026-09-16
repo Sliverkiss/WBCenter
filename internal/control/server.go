@@ -284,8 +284,15 @@ func (s *Server) mockSchedulerDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
+// maxRedactArrayItems 单个数组最多透出的元素数（防止超长上游列表撑爆响应）。
+const maxRedactArrayItems = 100
+
 // redactTaskDetail ensures a future upstream response cannot accidentally turn
 // this management view into a credential viewer.
+//
+// 敏感键判定按「键名包含 token/authorization/cookie/secret/password」进行，
+// 且必须递归到**任意深度**——上游把任务放在数组里（{"tasks":[{…}]}），
+// 只递归 map 而整体拷贝数组会让数组元素里的敏感键原样透出。
 func redactTaskDetail(item map[string]any) map[string]any {
 	out := make(map[string]any, len(item))
 	for k, v := range item {
@@ -293,20 +300,34 @@ func redactTaskDetail(item map[string]any) map[string]any {
 		if strings.Contains(key, "token") || strings.Contains(key, "authorization") || strings.Contains(key, "cookie") || strings.Contains(key, "secret") || strings.Contains(key, "password") {
 			continue
 		}
-		switch child := v.(type) {
-		case map[string]any:
-			out[k] = redactTaskDetail(child)
-		case []any:
-			if len(child) > 100 {
-				out[k] = append([]any(nil), child[:100]...)
-			} else {
-				out[k] = child
-			}
-		default:
-			out[k] = v
-		}
+		out[k] = redactValue(v)
 	}
 	return out
+}
+
+// redactValue 递归清洗任意 JSON 值（map / 数组 / 标量）。
+//
+// 数组必须逐元素递归后再截断：上游列表响应的典型形态就是数组套对象，
+// 若像旧实现那样 append(child[:100]...) 整体拷贝，数组元素内部的
+// accessToken / cookie 等键既不会被删也不会被检查，等于在唯一的
+// 管理视图出口上留了一条绕过路径。
+func redactValue(v any) any {
+	switch child := v.(type) {
+	case map[string]any:
+		return redactTaskDetail(child)
+	case []any:
+		n := len(child)
+		if n > maxRedactArrayItems {
+			n = maxRedactArrayItems
+		}
+		out := make([]any, 0, n)
+		for _, e := range child[:n] {
+			out = append(out, redactValue(e))
+		}
+		return out
+	default:
+		return v
+	}
 }
 func (s *Server) automations(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": s.svc.State().Automations(), "runs": s.svc.State().Runs()})
