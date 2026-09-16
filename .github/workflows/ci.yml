@@ -1,0 +1,93 @@
+# WorkBuddy Control Center —— 持续集成。
+#
+# 这个仓库此前**没有任何 CI**：前端能不能构建、Go 代码能不能过 vet / 竞态测试、
+# 以及「前端产物 → go:embed」这条链路是否完好，全靠人手动验证。
+# 本工作流把这三件事固化成每次 push / PR 的门禁。
+#
+# 与 Dockerfile 保持一致：Node 20 构建前端；Go 版本以 go.mod 为准（单一事实来源）。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一分支的新推送取消上一次未完成的运行，避免排队浪费额度。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# 只需要读权限。
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: 前端类型检查与构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 安装依赖
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      # 单独一步跑类型检查：失败时能一眼看出是类型错误而不是打包错误，
+      # 也防止将来 package.json 的 build 脚本改动后类型检查被悄悄丢掉。
+      - name: 类型检查
+        working-directory: web
+        run: npx tsc -b
+
+      - name: 构建前端产物
+        working-directory: web
+        run: npm run build
+
+      - name: 上传前端产物（供 embed 链路复用）
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-dist
+          path: internal/webui/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  go:
+    name: Go 编译、vet 与竞态测试
+    runs-on: ubuntu-latest
+    needs: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # 用上一步的真实产物覆盖仓库里的 .gitkeep 占位文件，让 go:embed 嵌到
+      # 真正的 SPA 而不是占位文件——这样才验证得到生产路径。
+      - name: 取回真实前端产物
+        uses: actions/download-artifact@v4
+        with:
+          name: webui-dist
+          path: internal/webui/dist
+
+      - name: 确认 embed 到的是真实产物
+        run: |
+          set -eu
+          test -f internal/webui/dist/index.html || { echo "::error::缺少 dist/index.html，前端产物未取回"; exit 1; }
+          grep -q '/assets/' internal/webui/dist/index.html || { echo "::error::index.html 未引用 /assets/ 产物，embed 到的可能是占位文件"; exit 1; }
+          ls internal/webui/dist/assets >/dev/null || { echo "::error::缺少 dist/assets/"; exit 1; }
+
+      - name: 编译
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: 竞态测试
+        run: go test -race -count=1 ./...
