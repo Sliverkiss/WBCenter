@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -59,6 +60,23 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if v := os.Getenv("WBCC_PASSWORD"); v != "" {
 		c.Password = v
+	}
+	if v := strings.TrimSpace(os.Getenv("WBCC_READ_ONLY")); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("WBCC_READ_ONLY 必须是 true 或 false")
+		}
+		c.ReadOnly = parsed
+	}
+	if v := strings.TrimSpace(os.Getenv("WBCC_TIMEZONE")); v != "" {
+		c.Timezone = v
+	}
+	if v := strings.TrimSpace(os.Getenv("WBCC_TIMEOUT_SECONDS")); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			return c, fmt.Errorf("WBCC_TIMEOUT_SECONDS 必须是整数")
+		}
+		c.TimeoutSeconds = parsed
 	}
 	if c.Listen == "" {
 		c.Listen = "127.0.0.1:8787"

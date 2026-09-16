@@ -21,6 +21,12 @@ func TestMarkSeenBatchBaselinesWholeFirstSnapshot(t *testing.T) {
 	if second["account-a:one"] || second["account-a:two"] {
 		t.Fatal("previous tasks must not be reported again")
 	}
+	if !s.IsRecentTask("account-a:three", 24*time.Hour) {
+		t.Fatal("newly discovered task should remain visible after the probe")
+	}
+	if s.IsRecentTask("account-a:one", 24*time.Hour) {
+		t.Fatal("baseline tasks must not be marked as newly discovered")
+	}
 }
 
 func TestSetAutomationPersistsIntervalAndRejectsInvalidValue(t *testing.T) {
@@ -58,6 +64,22 @@ func TestRunsReturnsEmptyArrayBeforeFirstRun(t *testing.T) {
 	runs := s.Runs()
 	if runs == nil || len(runs) != 0 {
 		t.Fatalf("expected a non-nil empty run list, got %#v", runs)
+	}
+}
+
+func TestNewStateIncludesActivityCompletionAutomation(t *testing.T) {
+	s, err := NewState(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range s.Automations() {
+		if item.ID == "activity-complete" {
+			found = item.Enabled && item.Action == "activity_complete" && item.EveryMinute == 1440
+		}
+	}
+	if !found {
+		t.Fatal("activity completion automation missing or has incorrect defaults")
 	}
 }
 

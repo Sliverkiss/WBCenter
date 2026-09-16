@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -47,6 +48,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/credits/{uid}", s.creditDetail)
 	mux.HandleFunc("GET /api/models", s.models)
 	mux.HandleFunc("GET /api/activities", s.activities)
+	mux.HandleFunc("POST /api/accounts/{uid}/activities/complete", s.activityComplete)
+	mux.HandleFunc("GET /api/activity-runs", s.activityRuns)
+	mux.HandleFunc("GET /api/activity-runs/{id}", s.activityRun)
 	mux.HandleFunc("GET /api/scheduler-tasks", s.schedulerTasks)
 	mux.HandleFunc("GET /api/scheduler-tasks/{uid}/{taskID}", s.schedulerTaskDetail)
 	mux.HandleFunc("GET /api/mock-scheduler-tasks", s.mockSchedulerTasks)
@@ -67,7 +71,7 @@ func (s *Server) headers(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; style-src 'self'; img-src 'self' data:")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -164,7 +168,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sessions[token] = session{expires: time.Now().Add(12 * time.Hour)}
 	delete(s.attempts, key)
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 43200})
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: 43200})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +177,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		delete(s.sessions, c.Value)
 		s.mu.Unlock()
 	}
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +212,35 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) activities(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": s.svc.Activities(r.Context())})
+}
+func (s *Server) activityComplete(w http.ResponseWriter, r *http.Request) {
+	if s.svc.Config().ReadOnly {
+		jsonErr(w, http.StatusForbidden, "服务端已开启只读模式")
+		return
+	}
+	var in struct {
+		TaskCode string `json:"task_code"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	run, err := s.svc.StartActivityRun(r.PathValue("uid"), strings.TrimSpace(in.TaskCode))
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "run": run})
+}
+func (s *Server) activityRun(w http.ResponseWriter, r *http.Request) {
+	run, err := s.svc.ActivityRun(r.PathValue("id"))
+	if err != nil {
+		jsonErr(w, http.StatusNotFound, "执行记录不存在或服务已重启")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"run": run})
+}
+func (s *Server) activityRuns(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"items": s.svc.ActivityRuns()})
 }
 func (s *Server) schedulerTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": s.svc.SchedulerTasks(r.Context()), "write_enabled": false, "note": "这是各 WorkBuddy 账号的云端定时任务。创建接口请求体尚未经过真实认证验证，当前保持只读。"})
@@ -293,20 +326,28 @@ func redactTaskDetail(item map[string]any) map[string]any {
 		if strings.Contains(key, "token") || strings.Contains(key, "authorization") || strings.Contains(key, "cookie") || strings.Contains(key, "secret") || strings.Contains(key, "password") {
 			continue
 		}
-		switch child := v.(type) {
-		case map[string]any:
-			out[k] = redactTaskDetail(child)
-		case []any:
-			if len(child) > 100 {
-				out[k] = append([]any(nil), child[:100]...)
-			} else {
-				out[k] = child
-			}
-		default:
-			out[k] = v
-		}
+		out[k] = redactTaskValue(v)
 	}
 	return out
+}
+
+func redactTaskValue(value any) any {
+	switch child := value.(type) {
+	case map[string]any:
+		return redactTaskDetail(child)
+	case []any:
+		limit := len(child)
+		if limit > 100 {
+			limit = 100
+		}
+		out := make([]any, 0, limit)
+		for _, item := range child[:limit] {
+			out = append(out, redactTaskValue(item))
+		}
+		return out
+	default:
+		return value
+	}
 }
 func (s *Server) automations(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": s.svc.State().Automations(), "runs": s.svc.State().Runs()})
@@ -404,8 +445,14 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 	defer r.Body.Close()
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(dst); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
 		jsonErr(w, 400, "请求格式错误")
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		jsonErr(w, 400, "请求只能包含一个 JSON 对象")
 		return false
 	}
 	return true

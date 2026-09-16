@@ -107,6 +107,10 @@ func TestServerAuthenticationAndSameOriginGuard(t *testing.T) {
 		res.Body.Close()
 		t.Fatalf("authenticated overview status = %d", res.StatusCode)
 	}
+	if csp := res.Header.Get("Content-Security-Policy"); csp == "" || bytes.Contains([]byte(csp), []byte("unsafe-inline")) {
+		res.Body.Close()
+		t.Fatalf("unexpected CSP: %q", csp)
+	}
 	res.Body.Close()
 
 	res = request(t, ts.Client(), http.MethodPut, ts.URL+"/api/automations/activity-probe", map[string]any{"enabled": true, "every_minutes": 30}, cookie, false)
@@ -128,8 +132,15 @@ func TestMockSchedulerCRUDAndReadOnlyGuard(t *testing.T) {
 	defer ts.Close()
 	cookie := login(t, ts)
 	input := map[string]any{"account_uid": "account-123456", "name": "每日摘要", "cron": "0 9 * * *", "prompt": "本地演练", "enabled": true}
+	invalid := map[string]any{"account_uid": "account-123456", "name": "每日摘要", "cron": "0 9 * * *", "prompt": "本地演练", "enabled": true, "unexpected": "rejected"}
+	res := request(t, ts.Client(), http.MethodPost, ts.URL+"/api/mock-scheduler-tasks", invalid, cookie, true)
+	if res.StatusCode != http.StatusBadRequest {
+		res.Body.Close()
+		t.Fatalf("mock create with unknown field status = %d", res.StatusCode)
+	}
+	res.Body.Close()
 
-	res := request(t, ts.Client(), http.MethodPost, ts.URL+"/api/mock-scheduler-tasks", input, cookie, true)
+	res = request(t, ts.Client(), http.MethodPost, ts.URL+"/api/mock-scheduler-tasks", input, cookie, true)
 	if res.StatusCode != http.StatusCreated {
 		res.Body.Close()
 		t.Fatalf("mock create status = %d", res.StatusCode)

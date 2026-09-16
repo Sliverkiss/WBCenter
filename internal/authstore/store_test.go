@@ -12,7 +12,8 @@ import (
 func TestParseNested(t *testing.T) {
 	raw := []byte(`{
 	  "account": {"uid":"uid-1","enterpriseId":"ent-1","nickname":"昵称"},
-	  "auth": {"accessToken":"at","refreshToken":"rt","expiresAt":1794289203,"domain":"copilot.tencent.com"}
+	  "auth": {"accessToken":"at","refreshToken":"rt","expiresAt":1794289203,"domain":"copilot.tencent.com","realm":"global"},
+	  "device_token": "device-1"
 	}`)
 	a, err := Parse(raw)
 	if err != nil {
@@ -26,6 +27,9 @@ func TestParseNested(t *testing.T) {
 	}
 	if a.Domain != "copilot.tencent.com" || a.ExpiresAt != 1794289203 {
 		t.Errorf("auth 字段错误: %+v", a)
+	}
+	if a.Realm != "global" || a.DeviceToken != "device-1" {
+		t.Errorf("新版凭据字段错误: %+v", a)
 	}
 }
 
@@ -94,6 +98,8 @@ func TestSaveAndGetRoundTrip(t *testing.T) {
 		Domain:       "copilot.tencent.com",
 		Nickname:     "测试",
 		EnterpriseID: "ent",
+		Realm:        "global",
+		DeviceToken:  "device-roundtrip",
 	}
 	if err := s.Save(a); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -108,6 +114,9 @@ func TestSaveAndGetRoundTrip(t *testing.T) {
 	}
 	if got.Nickname != "测试" || got.EnterpriseID != "ent" {
 		t.Errorf("账号字段不一致: %+v", got)
+	}
+	if got.Realm != "global" || got.DeviceToken != "device-roundtrip" {
+		t.Errorf("realm/device_token 未原样保留: %+v", got)
 	}
 
 	// 权限必须是 0600（凭证含敏感 token）。

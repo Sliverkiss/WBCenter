@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -257,6 +258,9 @@ func regionOfAccount(a *authstore.Account) Region {
 	if a == nil {
 		return RegionCN
 	}
+	if strings.EqualFold(strings.TrimSpace(a.Realm), string(RegionGlobal)) {
+		return RegionGlobal
+	}
 	d := strings.ToLower(strings.TrimSpace(a.Domain))
 	d = strings.TrimPrefix(strings.TrimPrefix(d, "https://"), "http://")
 	if d == "workbuddy.ai" || strings.HasSuffix(d, ".workbuddy.ai") {
@@ -393,6 +397,10 @@ func (c *Client) StartLogin(region Region) (state, authURL string, err error) {
 	if url == "" {
 		url = base + "/login?state=" + st.State + "&platform=CLI"
 	}
+	parsed, parseErr := neturl.Parse(url)
+	if parseErr != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil {
+		return "", "", fmt.Errorf("授权响应包含不安全的登录地址")
+	}
 	return st.State, url, nil
 }
 
@@ -442,6 +450,7 @@ func (c *Client) PollLogin(region Region, state string) (*authstore.Account, err
 		AccessToken:  tok.AccessToken,
 		RefreshToken: tok.RefreshToken,
 		Domain:       tok.Domain,
+		Realm:        string(region),
 	}
 	if tok.ExpiresIn > 0 {
 		acct.ExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second).Unix()
@@ -705,11 +714,14 @@ func findPackageRows(v any) []map[string]any {
 // GrowthTask is deliberately loose because the reverse-engineered response is
 // not a stable public schema. Raw tokens and headers are never returned.
 type GrowthTask struct {
-	Code   string         `json:"code"`
-	Name   string         `json:"name"`
-	Status string         `json:"status"`
-	Reward float64        `json:"reward"`
-	Raw    map[string]any `json:"raw,omitempty"`
+	Code         string         `json:"code"`
+	Name         string         `json:"name"`
+	Status       string         `json:"status"`
+	AcceptStatus string         `json:"accept_status"`
+	Progress     float64        `json:"progress"`
+	Target       float64        `json:"target"`
+	Reward       float64        `json:"reward"`
+	Raw          map[string]any `json:"raw,omitempty"`
 }
 
 func (c *Client) GrowthTasks(a *authstore.Account) ([]GrowthTask, error) {
@@ -729,7 +741,13 @@ func (c *Client) GrowthTasks(a *authstore.Account) ([]GrowthTask, error) {
 		if code == "" && name == "" {
 			continue
 		}
-		out = append(out, GrowthTask{Code: code, Name: name, Status: firstText(row, "status", "state", "task_status"), Reward: firstFloat(row, "reward", "reward_credit", "rewardCredit"), Raw: row})
+		progress, _ := row["progress"].(map[string]any)
+		acceptStatus := firstText(row, "accept_status", "acceptStatus")
+		status := firstText(row, "status", "state", "task_status")
+		if status == "" {
+			status = acceptStatus
+		}
+		out = append(out, GrowthTask{Code: code, Name: name, Status: status, AcceptStatus: acceptStatus, Progress: firstFloat(progress, "current"), Target: firstFloat(progress, "target"), Reward: firstFloat(row, "reward", "reward_credit", "rewardCredit"), Raw: row})
 	}
 	return out, nil
 }
@@ -781,20 +799,87 @@ func (c *Client) ConsoleTaskDetail(a *authstore.Account, taskID string) (map[str
 }
 
 func (c *Client) AvailableModels(a *authstore.Account) ([]map[string]any, error) {
-	req, err := http.NewRequest(http.MethodGet, c.chatBase(a)+"/v2/enterprises/personal/models", nil)
-	if err != nil {
-		return nil, err
+	enterprisePath := "/console/enterprises/personal/models"
+	if regionOfAccount(a) == RegionGlobal {
+		enterprisePath = "/v2/enterprises/personal/models"
 	}
-	billingHeaders(req, a)
-	data, err := c.doJSON(req)
-	if err != nil {
-		return nil, err
+	paths := []string{"/v3/config", enterprisePath}
+	merged := make([]map[string]any, 0)
+	seen := map[string]bool{}
+	var lastErr error
+	for _, path := range paths {
+		req, err := http.NewRequest(http.MethodGet, c.chatBase(a)+path, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		commonHeaders(req, regionOfAccount(a))
+		billingHeaders(req, a)
+		data, err := c.doJSON(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var decoded any
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			lastErr = err
+			continue
+		}
+		for _, row := range findObjectRows(decoded) {
+			id := firstText(row, "id", "model_id", "modelId", "code")
+			if id == "" || seen[id] {
+				continue
+			}
+			if disabled, _ := row["disabled"].(bool); disabled {
+				continue
+			}
+			maxOutput := int64(asFloat(row["maxOutputTokens"]))
+			if nonChatModel(id, maxOutput, stringSlice(row["tags"])) {
+				continue
+			}
+			seen[id] = true
+			merged = append(merged, row)
+		}
 	}
-	var decoded any
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return nil, err
+	if len(merged) == 0 && lastErr != nil {
+		return nil, lastErr
 	}
-	return findObjectRows(decoded), nil
+	return merged, nil
+}
+
+func stringSlice(v any) []string {
+	raw, ok := v.([]any)
+	if !ok {
+		if out, ok := v.([]string); ok {
+			return out
+		}
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if s := strings.TrimSpace(fmt.Sprint(item)); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func nonChatModel(id string, maxOutput int64, tags []string) bool {
+	id = strings.ToLower(strings.TrimSpace(id))
+	for _, prefix := range []string{"nes-", "completion-", "codewise-"} {
+		if strings.HasPrefix(id, prefix) {
+			return true
+		}
+	}
+	if maxOutput > 0 && maxOutput <= 256 {
+		return true
+	}
+	for _, tag := range tags {
+		if tag == "text-to-image" {
+			return true
+		}
+	}
+	return false
 }
 
 func findObjectRows(v any) []map[string]any {
