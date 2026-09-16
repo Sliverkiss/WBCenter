@@ -18,6 +18,10 @@ const (
 	cookieName         = "wbcc_session"
 	loginAttemptLimit  = 10
 	loginAttemptWindow = 15 * time.Minute
+
+	// loginPruneInterval 整表清理登录失败记录的最小间隔，见 pruneAttemptsLocked。
+	// 用它限流是为了避免「表很大但记录都还没过期」时把每次登录都放大成一次 O(n) 扫描。
+	loginPruneInterval = time.Minute
 )
 
 type session struct{ expires time.Time }
@@ -31,6 +35,9 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[string]session
 	attempts map[string]loginAttempt
+
+	// lastPrune 记录上次整表清理 attempts 的时刻（见 pruneAttemptsLocked），由 mu 保护。
+	lastPrune time.Time
 }
 
 func NewServer(svc *Service, static http.Handler) *Server {
@@ -127,6 +134,29 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	cfg := s.svc.Config()
 	writeJSON(w, http.StatusOK, map[string]any{"authenticated": s.valid(r), "read_only": cfg.ReadOnly, "using_default_password": cfg.Password == "workbuddy", "timezone": cfg.Timezone})
 }
+
+// pruneAttemptsLocked 回收已过窗口的登录失败记录（调用方须持有 s.mu）。
+//
+// 为什么需要：attempts 的条目只在「同一来源在窗口结束后再次尝试」或「该来源登录
+// 成功」时才被删除（见 login）。于是一个**只失败一次、再也不回来**的来源会留下一条
+// 永久记录，而来源数量并不受控——IPv6 下一个 /64 就能造出天文数字的不同地址，每个
+// 地址只发一个请求即可，等于给未认证的远端留了一条无界增长服务端内存的路径。
+// 这些过期记录也再不会被用到：只有该来源自己回来时才会被读到，届时同样按过期处理。
+//
+// 用时间间隔限流而不是「每次登录都扫」：表很大且记录都还没过期时，逐次整表扫描会被
+// 放大成 O(n)/请求；限流后清理开销摊薄到每分钟至多一次，单次成本仍是一次 map 遍历。
+func (s *Server) pruneAttemptsLocked(now time.Time) {
+	if now.Sub(s.lastPrune) < loginPruneInterval {
+		return
+	}
+	s.lastPrune = now
+	for ip, rec := range s.attempts {
+		if now.Sub(rec.first) >= loginAttemptWindow {
+			delete(s.attempts, ip)
+		}
+	}
+}
+
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username string `json:"username"`
@@ -138,6 +168,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	key := source(r)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pruneAttemptsLocked(time.Now())
 	attempt := s.attempts[key]
 	if !attempt.first.IsZero() && time.Since(attempt.first) >= loginAttemptWindow {
 		delete(s.attempts, key)
