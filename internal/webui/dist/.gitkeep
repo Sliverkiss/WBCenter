@@ -1,0 +1,7 @@
+占位文件：仅用于让 `//go:embed all:dist` 在未构建前端时也能匹配到文件，
+从而保证 `go build` 永远可用。
+
+不要把前端构建产物提交进仓库（.gitignore 已忽略 dist 下除本文件外的一切）：
+真正的产物由 Dockerfile 阶段 1 的 `npm run build` 生成，或本地 `cd web && npm run build`。
+仓库里若提交了引用 /assets/<hash>.js 的 index.html 而产物不在库中，
+运行时就会跳过 internal/webui/webui.go 的「前端未构建」提示页，直接变成一片空白。
