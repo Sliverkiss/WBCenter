@@ -47,6 +47,9 @@ export default function App() {
   const [readOnly, setReadOnly] = useState(false);
   const [page, setPage] = useState<Page>("overview");
   const [notice, setNotice] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("wbcc-sidebar-collapsed") === "1",
+  );
 
   const check = useCallback(async () => {
     try {
@@ -80,14 +83,34 @@ export default function App() {
     ["activities", "活动管理", "✦"],
     ["oauth", "添加账号", "→"],
   ];
+  const toggleSidebar = () => {
+    setSidebarCollapsed((value) => {
+      const next = !value;
+      window.localStorage.setItem("wbcc-sidebar-collapsed", next ? "1" : "0");
+      return next;
+    });
+  };
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
+        <button
+          className="sidebar-toggle"
+          type="button"
+          aria-label={sidebarCollapsed ? "展开侧栏" : "收起侧栏"}
+          title={sidebarCollapsed ? "展开侧栏" : "收起侧栏"}
+          onClick={toggleSidebar}
+        >
+          {sidebarCollapsed ? "›" : "‹"}
+        </button>
         <div className="wordmark">
           <b>
-            WORK
-            <br />
-            BUDDY<span>›</span>
+            <span className="wordmark-full">
+              WORK
+              <br />
+              BUDDY
+            </span>
+            <span className="wordmark-short">WB</span>
+            <span className="wordmark-arrow">›</span>
           </b>
           <small>LOCAL CONTROL ROOM</small>
         </div>
@@ -96,10 +119,11 @@ export default function App() {
             <button
               key={id}
               className={page === id ? "nav active" : "nav"}
+              title={label}
               onClick={() => setPage(id)}
             >
               <i>{icon}</i>
-              {label}
+              <span className="nav-label">{label}</span>
             </button>
           ))}
         </nav>
@@ -395,7 +419,7 @@ function Accounts({
                     <b>{name}</b>
                     <small>{uid}</small>
                   </td>
-                  <td>{String(a.domain || "cn")}</td>
+                  <td>{String(a.realm || a.domain || "cn")}</td>
                   <td>
                     <Badge ok={!a.expired}>
                       {a.expired
@@ -466,6 +490,28 @@ function Credits() {
   };
   if (error) return <ErrorView text={error} />;
   if (!items) return <Loading />;
+  const validItems = items.filter((item) => !item.error);
+  const totals = validItems.reduce<{
+    current: number;
+    allocated: number;
+    consumed: number;
+    remaining: number;
+  }>(
+    (sum, item) => ({
+      current: sum.current + (Number(item.current) || 0),
+      allocated: sum.allocated + (Number(item.today_allocated) || 0),
+      consumed: sum.consumed + (Number(item.today_consumed) || 0),
+      remaining: sum.remaining + (Number(item.today_remaining) || 0),
+    }),
+    { current: 0, allocated: 0, consumed: 0, remaining: 0 },
+  );
+  const summary = [
+    ["账号总数", items.length],
+    ["当前总积分", totals.current],
+    ["今日发放额度", totals.allocated],
+    ["今日已用", totals.consumed],
+    ["今日剩余", totals.remaining],
+  ];
   return (
     <>
       <Head
@@ -478,6 +524,14 @@ function Credits() {
           </button>
         }
       />
+      <section className="credit-stats" aria-label="积分汇总">
+        {summary.map(([label, value]) => (
+          <div className="credit-stat" key={String(label)}>
+            <span>{String(label)}</span>
+            <b>{fmt(value)}</b>
+          </div>
+        ))}
+      </section>
       <section className="card table">
         <table>
           <thead>
@@ -604,7 +658,7 @@ function Models() {
       <Head
         eyebrow="MODELS"
         title="模型管理"
-        text="按账号直连上游查询可用模型，不依赖网关模型列表。"
+        text="按账号合并读取新版 /v3/config 与企业模型目录，展示积分倍率和能力标签。"
         action={
           <button className="black" onClick={load}>
             刷新模型
@@ -641,7 +695,9 @@ function Models() {
               <th>账号</th>
               <th>模型 ID</th>
               <th>名称</th>
-              <th>状态</th>
+              <th>积分倍率</th>
+              <th>能力</th>
+              <th>上下文</th>
             </tr>
           </thead>
           <tbody>
@@ -654,8 +710,30 @@ function Models() {
                   {m.error ? (
                     <Badge ok={false}>{String(m.error)}</Badge>
                   ) : (
-                    <Badge ok>来自上游</Badge>
+                    <Badge ok>{String(m.credits || "上游未标注")}</Badge>
                   )}
+                </td>
+                <td>
+                  {[
+                    m.supports_reasoning ? "推理" : "",
+                    m.supports_tool_call ? "工具" : "",
+                    m.supports_images ? "图片" : "",
+                    ...(Array.isArray(m.tags) ? m.tags : []),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "—"}
+                  {Boolean(m.description) && (
+                    <small>{String(m.description)}</small>
+                  )}
+                </td>
+                <td>
+                  {fmt(m.max_input_tokens)} / {fmt(m.max_output_tokens)}
+                  {Array.isArray(m.supported_efforts) &&
+                    m.supported_efforts.length > 0 && (
+                      <small>
+                        推理档位：{m.supported_efforts.join(" / ")}
+                      </small>
+                    )}
                 </td>
               </tr>
             ))}
@@ -1158,6 +1236,10 @@ function Activities({
   const [runState, setRunState] = useState<ActivityRun | null>(null);
   const [showLogs, setShowLogs] = useState(false);
   const [detailUID, setDetailUID] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "actionable" | "completed" | "issue">("all");
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
   const load = useCallback(() => {
     setError("");
     void Promise.all([
@@ -1213,29 +1295,69 @@ function Activities({
   };
   if (error) return <ErrorView text={error} />;
   if (!items) return <Loading />;
-  const accountSummaries = [...new Set(items.map((item) => String(item.uid)))].map(
-    (uid) => {
-      const tasks = items.filter((item) => String(item.uid) === uid);
-      return {
+  const accountSummaries = (() => {
+    const byUID = new Map<
+      string,
+      {
+        uid: string;
+        nickname: string;
+        total: number;
+        completed: number;
+        automatic: number;
+        reward: number;
+        error: string;
+      }
+    >();
+    for (const item of items) {
+      const uid = String(item.uid);
+      const summary = byUID.get(uid) || {
         uid,
-        nickname: String(tasks[0]?.nickname || uid),
-        tasks,
-        total: tasks.filter((item) => !item.error).length,
-        completed: tasks.filter(
-          (item) =>
-            String(item.action) === "done" ||
-            ["completed", "claimed"].includes(String(item.status).toLowerCase()),
-        ).length,
-        automatic: tasks.filter((item) => String(item.action) === "complete")
-          .length,
-        reward: tasks.reduce(
-          (sum, item) => sum + (Number(item.reward) || 0),
-          0,
-        ),
-        error: String(tasks.find((item) => item.error)?.error || ""),
+        nickname: String(item.nickname || uid),
+        total: 0,
+        completed: 0,
+        automatic: 0,
+        reward: 0,
+        error: "",
       };
-    },
+      if (item.error) {
+        summary.error ||= String(item.error);
+      } else {
+        summary.total += 1;
+        summary.reward += Number(item.reward) || 0;
+        if (
+          String(item.action) === "done" ||
+          ["completed", "claimed"].includes(String(item.status).toLowerCase())
+        ) {
+          summary.completed += 1;
+        }
+        if (String(item.action) === "complete") summary.automatic += 1;
+      }
+      byUID.set(uid, summary);
+    }
+    return [...byUID.values()];
+  })();
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredSummaries = accountSummaries.filter((account) => {
+    if (
+      normalizedQuery &&
+      !`${account.nickname} ${account.uid}`.toLocaleLowerCase().includes(normalizedQuery)
+    ) {
+      return false;
+    }
+    if (filter === "actionable") return account.automatic > 0;
+    if (filter === "completed") return account.total > 0 && account.completed >= account.total;
+    if (filter === "issue") return Boolean(account.error);
+    return true;
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredSummaries.length / pageSize));
+  const visibleSummaries = filteredSummaries.slice(
+    (Math.min(page, totalPages) - 1) * pageSize,
+    Math.min(page, totalPages) * pageSize,
   );
+  const setSummaryFilter = (next: "all" | "actionable" | "completed" | "issue") => {
+    setFilter(next);
+    setPage(1);
+  };
   const detailItems = detailUID
     ? items.filter((item) => String(item.uid) === detailUID)
     : [];
@@ -1264,26 +1386,79 @@ function Activities({
             </button>
           )}
         </div>
-        <div className="account-activity-list">
-          {accountSummaries.map((account) => (
-            <article className="account-activity-row" key={account.uid}>
-              <div className="account-identity">
-                <b>{account.nickname}</b>
-                {account.error ? <Badge ok={false}>{account.error}</Badge> : <span>{account.completed}/{account.total} 项已完成</span>}
-              </div>
-              <div className="account-metric"><span>活动任务</span><b>{account.total}</b></div>
-              <div className="account-metric"><span>全部奖励</span><b>{fmt(account.reward)} 积分</b></div>
-              <div className="account-row-actions">
-                <button className="secondary-button" onClick={() => setDetailUID((current) => current === account.uid ? "" : account.uid)}>
-                  {detailUID === account.uid ? "收起任务明细" : "查看任务明细"}
-                </button>
-                <button className="primary-button" disabled={readOnly || Boolean(busy) || account.automatic === 0} onClick={() => void run(account.uid)}>
-                  {busy === `${account.uid}:all` ? `执行中 ${runState?.completed || 0}/${runState?.total || account.automatic}` : `批量完成任务`}
-                </button>
-              </div>
-            </article>
-          ))}
+        <div className="activity-summary-toolbar">
+          <label className="activity-search">
+            <span className="sr-only">搜索账号</span>
+            <input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
+              placeholder="搜索账号"
+            />
+          </label>
+          <div className="activity-filters" aria-label="活动账号筛选">
+            {([
+              ["all", "全部"],
+              ["actionable", "可自动完成"],
+              ["completed", "已完成"],
+              ["issue", "异常"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={filter === value ? "active" : ""}
+                onClick={() => setSummaryFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="activity-result-count">共 {filteredSummaries.length} 个账号</span>
         </div>
+        <div className="table activity-summary-table">
+          <table>
+            <thead>
+              <tr>
+                <th>账号</th>
+                <th>完成进度</th>
+                <th>活动任务</th>
+                <th>全部奖励</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleSummaries.map((account) => (
+                <tr key={account.uid}>
+                  <td>
+                    <b>{account.nickname}</b>
+                    {account.error && <small><Badge ok={false}>{account.error}</Badge></small>}
+                  </td>
+                  <td>{account.error ? "读取异常" : `${account.completed}/${account.total} 项已完成`}</td>
+                  <td>{account.total}</td>
+                  <td>{fmt(account.reward)} 积分</td>
+                  <td>
+                    <button className="secondary-button" onClick={() => setDetailUID((current) => current === account.uid ? "" : account.uid)}>
+                      {detailUID === account.uid ? "收起明细" : "查看明细"}
+                    </button>
+                    <button className="primary-button" disabled={readOnly || Boolean(busy) || account.automatic === 0} onClick={() => void run(account.uid)}>
+                      {busy === `${account.uid}:all` ? `执行中 ${runState?.completed || 0}/${runState?.total || account.automatic}` : "批量完成"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filteredSummaries.length === 0 && <Empty text="没有符合条件的账号。" />}
+        {filteredSummaries.length > pageSize && (
+          <div className="activity-pagination" aria-label="活动账号分页">
+            <span>第 {Math.min(page, totalPages)} / {totalPages} 页，每页 {pageSize} 个账号</span>
+            <button className="secondary-button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
+            <button className="secondary-button" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>下一页</button>
+          </div>
+        )}
         {runState && (
           <div className={`activity-progress ${runState.status}`}>
             <div className="progress-copy">

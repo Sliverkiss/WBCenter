@@ -3,6 +3,7 @@ package control
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +23,7 @@ type Account struct {
 	UID          string `json:"uid"`
 	Nickname     string `json:"nickname"`
 	Domain       string `json:"domain"`
+	Realm        string `json:"realm"`
 	ExpiresAt    int64  `json:"expires_at"`
 	Expired      bool   `json:"expired"`
 	NeedsRefresh bool   `json:"needs_refresh"`
@@ -84,11 +86,22 @@ var completableGrowthTasks = map[string]bool{
 }
 
 type Model struct {
-	UID      string `json:"uid"`
-	Nickname string `json:"nickname"`
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Error    string `json:"error,omitempty"`
+	UID               string   `json:"uid"`
+	Nickname          string   `json:"nickname"`
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Description       string   `json:"description,omitempty"`
+	Credits           string   `json:"credits,omitempty"`
+	Vendor            string   `json:"vendor,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
+	MaxInputTokens    int64    `json:"max_input_tokens,omitempty"`
+	MaxOutputTokens   int64    `json:"max_output_tokens,omitempty"`
+	SupportsImages    bool     `json:"supports_images,omitempty"`
+	SupportsReasoning bool     `json:"supports_reasoning,omitempty"`
+	SupportsToolCall  bool     `json:"supports_tool_call,omitempty"`
+	Efforts           []string `json:"supported_efforts,omitempty"`
+	DefaultEffort     string   `json:"default_effort,omitempty"`
+	Error             string   `json:"error,omitempty"`
 }
 
 // SchedulerTask belongs to a WorkBuddy account and represents its own cloud
@@ -131,7 +144,15 @@ func (s *Service) Accounts() ([]Account, []string) {
 	rows, warns := s.store.List()
 	out := make([]Account, 0, len(rows))
 	for _, a := range rows {
-		out = append(out, Account{UID: a.UID, Nickname: a.Nickname, Domain: a.Domain, ExpiresAt: a.ExpiresAt, Expired: a.Expired(), NeedsRefresh: a.NeedsRefresh(24 * time.Hour)})
+		realm := a.Realm
+		if realm == "" {
+			if strings.Contains(strings.ToLower(a.Domain), "workbuddy.ai") {
+				realm = "global"
+			} else {
+				realm = "cn"
+			}
+		}
+		out = append(out, Account{UID: a.UID, Nickname: a.Nickname, Domain: a.Domain, Realm: realm, ExpiresAt: a.ExpiresAt, Expired: a.Expired(), NeedsRefresh: a.NeedsRefresh(24 * time.Hour)})
 	}
 	return out, warns
 }
@@ -445,7 +466,46 @@ func (s *Service) Models(ctx context.Context) []Model {
 			continue
 		}
 		for _, item := range items {
-			out = append(out, Model{UID: a.UID, Nickname: a.Nickname, ID: first(item, "id", "model_id", "modelId", "code"), Name: first(item, "name", "display_name", "displayName")})
+			reasoning, _ := item["reasoning"].(map[string]any)
+			out = append(out, Model{
+				UID: a.UID, Nickname: a.Nickname,
+				ID: first(item, "id", "model_id", "modelId", "code"), Name: first(item, "name", "display_name", "displayName"),
+				Description: first(item, "descriptionZh", "description"), Credits: first(item, "credits"), Vendor: first(item, "vendor"),
+				Tags: textSlice(item["tags"]), MaxInputTokens: int64(number(item["maxInputTokens"])), MaxOutputTokens: int64(number(item["maxOutputTokens"])),
+				SupportsImages: truth(item["supportsImages"]), SupportsReasoning: truth(item["supportsReasoning"]), SupportsToolCall: truth(item["supportsToolCall"]),
+				Efforts: textSlice(reasoning["supportedEfforts"]), DefaultEffort: first(reasoning, "defaultEffort"),
+			})
+		}
+	}
+	return out
+}
+
+func number(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		return f
+	}
+	return 0
+}
+
+func truth(v any) bool { b, _ := v.(bool); return b }
+
+func textSlice(v any) []string {
+	raw, ok := v.([]any)
+	if !ok {
+		out, _ := v.([]string)
+		return out
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if s := strings.TrimSpace(fmt.Sprint(item)); s != "" {
+			out = append(out, s)
 		}
 	}
 	return out

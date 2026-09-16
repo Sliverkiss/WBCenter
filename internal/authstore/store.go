@@ -31,6 +31,8 @@ type Account struct {
 	RefreshToken string `json:"refreshToken"`
 	ExpiresAt    int64  `json:"expiresAt"` // Unix 秒
 	Domain       string `json:"domain"`
+	Realm        string `json:"realm"`
+	DeviceToken  string `json:"device_token"`
 
 	UID          string `json:"uid"`
 	EnterpriseID string `json:"enterpriseId"`
@@ -190,12 +192,14 @@ func Parse(raw []byte) (*Account, error) {
 				RefreshToken string `json:"refreshToken"`
 				ExpiresAt    int64  `json:"expiresAt"`
 				Domain       string `json:"domain"`
+				Realm        string `json:"realm"`
 			} `json:"auth"`
 			Account struct {
 				UID          string `json:"uid"`
 				EnterpriseID string `json:"enterpriseId"`
 				Nickname     string `json:"nickname"`
 			} `json:"account"`
+			DeviceToken string `json:"device_token"`
 		}
 		if err := json.Unmarshal(raw, &n); err != nil {
 			return nil, fmt.Errorf("凭证 JSON 解析失败: %w", err)
@@ -205,6 +209,8 @@ func Parse(raw []byte) (*Account, error) {
 			RefreshToken: n.Auth.RefreshToken,
 			ExpiresAt:    n.Auth.ExpiresAt,
 			Domain:       n.Auth.Domain,
+			Realm:        n.Auth.Realm,
+			DeviceToken:  n.DeviceToken,
 			UID:          n.Account.UID,
 			EnterpriseID: n.Account.EnterpriseID,
 			Nickname:     n.Account.Nickname,
@@ -248,7 +254,11 @@ func (s *Store) Save(a *Account) error {
 			"refreshToken": a.RefreshToken,
 			"expiresAt":    a.ExpiresAt,
 			"domain":       a.Domain,
+			"realm":        a.Realm,
 		},
+	}
+	if a.DeviceToken != "" {
+		doc["device_token"] = a.DeviceToken
 	}
 	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
