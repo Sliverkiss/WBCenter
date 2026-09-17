@@ -127,6 +127,26 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	cfg := s.svc.Config()
 	writeJSON(w, http.StatusOK, map[string]any{"authenticated": s.valid(r), "read_only": cfg.ReadOnly, "using_default_password": cfg.Password == "workbuddy", "timezone": cfg.Timezone})
 }
+
+// isHTTPS 判断当前请求是否来自 HTTPS 链路。
+//
+// 面板自身只监听明文 HTTP（默认 127.0.0.1:8787），生产上按 README 的说明由反向代理
+// 终结 TLS，所以除了 r.TLS，还要认反向代理注入的 X-Forwarded-Proto。多级代理会把它
+// 写成 "https, http" 这样的列表，取第一个 token 才是与浏览器之间的真实协议。
+//
+// 该头部由客户端提供也不构成风险：伪造它只会让 cookie 多一个 Secure（更严格），
+// 不会让任何响应变得更宽松，因此无需再做额外校验。
+func isHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if i := strings.IndexByte(proto, ','); i >= 0 {
+		proto = proto[:i]
+	}
+	return strings.EqualFold(strings.TrimSpace(proto), "https")
+}
+
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username string `json:"username"`
@@ -164,7 +184,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sessions[token] = session{expires: time.Now().Add(12 * time.Hour)}
 	delete(s.attempts, key)
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 43200})
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteStrictMode, MaxAge: 43200})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +193,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		delete(s.sessions, c.Value)
 		s.mu.Unlock()
 	}
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
