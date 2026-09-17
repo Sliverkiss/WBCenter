@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"workbuddy-control-center/internal/authstore"
 	"workbuddy-control-center/internal/upstream"
@@ -327,18 +329,53 @@ func (s *Service) Run(ctx context.Context, action, uid string) (string, error) {
 		targets = []*authstore.Account{a}
 	}
 	ok, failed := 0, 0
+	// detailLimit 限制明细条数：这条消息会被写进状态文件（automation 的 LastResult 与
+	// Runs 历史），账号多的时候不能把它撑成无界字符串。
+	const detailLimit = 5
+	details := make([]string, 0, detailLimit)
+	dropped := 0
+	addDetail := func(a *authstore.Account, text string) {
+		if text == "" {
+			return
+		}
+		if len(details) >= detailLimit {
+			dropped++
+			return
+		}
+		name := strings.TrimSpace(a.Nickname)
+		if name == "" {
+			name = a.UID
+		}
+		details = append(details, name+"："+clipMessage(text))
+	}
 	for _, a := range targets {
 		unlock := s.lock(a.UID)
 		var err error
+		note := ""
 		switch action {
 		case "checkin":
-			_, err = s.up.DailyCheckin(a)
+			var res *upstream.CheckinResult
+			res, err = s.up.DailyCheckin(a)
+			if res != nil {
+				if res.Already {
+					note = "今日已签到（幂等跳过）"
+				} else {
+					note = res.Message
+				}
+			}
 		case "travel":
-			_, err = s.up.TravelOnce(a)
+			var res *upstream.TravelResult
+			res, err = s.up.TravelOnce(a)
+			if res != nil {
+				note = res.Message
+			}
 		case "refresh":
 			err = s.up.RefreshToken(a)
 			if err == nil {
 				err = s.store.Save(a)
+			}
+			if err == nil {
+				note = "凭据已刷新"
 			}
 		default:
 			unlock()
@@ -347,12 +384,46 @@ func (s *Service) Run(ctx context.Context, action, uid string) (string, error) {
 		unlock()
 		if err != nil {
 			failed++
+			// 明细优先用上游给的人类可读描述（如「查询猫档案失败: …」），没有时退回错误
+			// 文本——原本两条都丢，运维只能看到一个数字，无从排查。
+			if note == "" {
+				note = err.Error()
+			}
+			addDetail(a, "失败："+note)
 		} else {
 			ok++
+			addDetail(a, note)
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	return fmt.Sprintf("成功 %d，失败 %d", ok, failed), nil
+	msg := fmt.Sprintf("成功 %d，失败 %d", ok, failed)
+	if len(details) > 0 {
+		msg += "；" + strings.Join(details, "；")
+	}
+	if dropped > 0 {
+		msg += fmt.Sprintf("…（另有 %d 条明细未展开）", dropped)
+	}
+	return msg, nil
+}
+
+// clipMessage 限制单条明细的长度，按字符边界截断，避免把中文劈成半个字
+// （半个字会产出非法 UTF-8，写进响应 JSON 时变成乱码）。
+func clipMessage(s string) string {
+	const max = 80
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+	if len(s) <= max {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		_, w := utf8.DecodeRuneInString(s[i:])
+		if b.Len()+w > max-3 { // 留 3 字节给省略号
+			break
+		}
+		b.WriteString(s[i : i+w])
+		i += w
+	}
+	return b.String() + "…"
 }
 func (s *Service) Tick(ctx context.Context) {
 	for _, a := range s.state.ClaimDue(time.Now()) {
