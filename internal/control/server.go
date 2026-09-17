@@ -377,6 +377,13 @@ func (s *Server) accountAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "message": msg})
 }
 func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {
+	// 与其余写入端点保持一致：只读模式下在**入口**就拒绝。
+	// 不这样做的话，用户会完整走完上游网页授权、凭据都换回来了，才在最后一步
+	// PollOAuth 被告知只读——白跑一趟，而且上游侧已经留下了这次授权的痕迹。
+	if s.svc.Config().ReadOnly {
+		jsonErr(w, http.StatusForbidden, "服务端已开启只读模式")
+		return
+	}
 	var in struct {
 		Region string `json:"region"`
 	}
