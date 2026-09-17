@@ -224,14 +224,19 @@ func New(timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 120 * time.Second
 	}
+	// 克隆默认传输层，而不是手搓 &http.Transport{}：手搓会丢掉 http.DefaultTransport 的
+	// 一整套默认值，其中最要紧的是 Proxy（默认 http.ProxyFromEnvironment）——少了它
+	// HTTP_PROXY/HTTPS_PROXY/NO_PROXY 全部失效，面板在需要走代理的环境里只会表现为「连不通」，
+	// 而且不报任何配置错。同批丢失的还有 ForceAttemptHTTP2（HTTP/2 被关掉）与
+	// TLSHandshakeTimeout（握手没有超时）。这里只覆盖连接池参数，其余保持标准行为。
+	pool := http.DefaultTransport.(*http.Transport).Clone()
+	pool.MaxIdleConns = 50
+	pool.MaxIdleConnsPerHost = 10
+	pool.IdleConnTimeout = 90 * time.Second
 	return &Client{
 		HTTP: &http.Client{
-			Timeout: timeout,
-			Transport: &http.Transport{
-				MaxIdleConns:        50,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
-			},
+			Timeout:   timeout,
+			Transport: pool,
 		},
 		Timeout: timeout,
 	}
