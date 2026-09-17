@@ -217,6 +217,22 @@ func IsBuddyTaskIncomplete(err error) bool {
 type Client struct {
 	HTTP    *http.Client
 	Timeout time.Duration
+
+	// Location 是「自然日」所用时区：今日额度切片窗口与积分查询区间的墙钟字符串都按
+	// 它格式化，上游也按该时区解释这些字符串。nil 表示退回进程本地时区（time.Local）。
+	//
+	// 面板自己只监听明文 HTTP、也不该依赖进程时区，而部署它的容器默认是 UTC
+	// （Dockerfile 装了 tzdata 但运行阶段没有 ENV TZ，compose 也没设 TZ），
+	// 所以必须由配置显式指定，否则国内用户每天 00:00–08:00 请求到的是前一天的切片窗口。
+	Location *time.Location
+}
+
+// location 返回「自然日」所用时区；未显式配置时退回进程本地时区。
+func (c *Client) location() *time.Location {
+	if c.Location != nil {
+		return c.Location
+	}
+	return time.Local
 }
 
 // New 构建客户端；timeout <=0 时用 120s。
@@ -590,8 +606,9 @@ func (c *Client) DailyFreePackages(a *authstore.Account, packageCodes []string) 
 	if len(packageCodes) == 0 {
 		return nil, fmt.Errorf("上游未返回可查询的套餐编号")
 	}
-	now := time.Now()
-	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	loc := c.location()
+	now := time.Now().In(loc)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	end := start.Add(24*time.Hour - time.Millisecond)
 	body := map[string]any{
 		"PageNumber": 1, "PageSize": 200, "Status": []int{0, 3},
@@ -826,7 +843,7 @@ func findObjectRows(v any) []map[string]any {
 
 // UserResource 查询账号可花费积分余额（所有套餐聚合，负值钳 0）。
 func (c *Client) UserResource(a *authstore.Account) (*Credits, error) {
-	now := time.Now()
+	now := time.Now().In(c.location())
 	body, _ := json.Marshal(map[string]any{
 		"PageNumber":               1,
 		"PageSize":                 100,

@@ -82,6 +82,15 @@ type Service struct {
 }
 
 func NewService(cfg Config, store *authstore.Store, up *upstream.Client, state *State) *Service {
+	// 把配置的时区交给上游客户端：它对「自然日」敏感（今日额度切片窗口、积分查询区间
+	// 都是墙钟字符串，由上游按该时区解释）。不传的话，容器里默认的 UTC 会让国内用户
+	// 每天 00:00–08:00 拿到前一天的数据。LoadConfig 已经校验过时区，这里只是兜底：
+	// 万一加载失败就保持 nil，退回进程本地时区（即旧行为）。
+	if up != nil && cfg.Timezone != "" {
+		if loc, err := time.LoadLocation(cfg.Timezone); err == nil {
+			up.Location = loc
+		}
+	}
 	return &Service{cfg: cfg, store: store, up: up, state: state, accountLocks: map[string]*sync.Mutex{}, logins: map[string]loginFlow{}}
 }
 func (s *Service) Config() Config { return s.cfg }
