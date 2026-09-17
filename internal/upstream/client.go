@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"workbuddy-control-center/internal/authstore"
 )
@@ -1115,8 +1116,22 @@ func (c *Client) TravelOnce(a *authstore.Account) (*TravelResult, error) {
 
 func truncate(s string, n int) string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
-	if len(s) > n {
-		return s[:n]
+	if len(s) <= n {
+		return s
 	}
-	return s
+	// n 是字节上限，但不能直接切片：中文（3 字节）、emoji（4 字节）会被劈成半个字符，
+	// 产出非法 UTF-8。这段文案会进 Error.Msg 并最终写进 JSON 响应，非法字节在编码时
+	// 变成 U+FFFD——用户在最需要看清原因的错误路径上看到的是乱码。
+	// 这里逐字符按字节宽度累加，保证结果 ≤ n 字节、始终是原串前缀、且始终合法 UTF-8。
+	var b strings.Builder
+	b.Grow(n)
+	for i := 0; i < len(s); {
+		_, w := utf8.DecodeRuneInString(s[i:])
+		if b.Len()+w > n {
+			break
+		}
+		b.WriteString(s[i : i+w])
+		i += w
+	}
+	return b.String()
 }
