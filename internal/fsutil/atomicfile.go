@@ -57,6 +57,11 @@ func WriteFileAtomic(path string, raw []byte, perm os.FileMode) (fallback bool, 
 }
 
 // overwriteInPlace 截断并原地重写文件内容，完成后 fsync 确保落盘。
+//
+// 结果权限恒等于 perm：OpenFile 的 perm 只对「新建」生效，已存在文件的 mode 会被静默忽略，
+// 所以两条分支都显式 Chmod。回退路径的目标文件常是宿主机上人工创建或按 umask 建出来的
+// （config.json / 凭证文件），若不显式收敛，面板声称的 0600 会名不副实，凭证对同挂载的
+// 其它用户可读。
 func overwriteInPlace(path string, raw []byte, perm os.FileMode) error {
 	// 目标不存在（首次创建）时先建出来。
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -65,6 +70,9 @@ func overwriteInPlace(path string, raw []byte, perm os.FileMode) error {
 			return err
 		}
 		defer f.Close()
+		if err := f.Chmod(perm); err != nil {
+			return err
+		}
 		if _, err := f.Write(raw); err != nil {
 			return err
 		}
@@ -76,6 +84,10 @@ func overwriteInPlace(path string, raw []byte, perm os.FileMode) error {
 		return err
 	}
 	defer f.Close()
+	// 已存在的文件：perm 被 OpenFile 忽略，必须显式收敛权限。
+	if err := f.Chmod(perm); err != nil {
+		return err
+	}
 	if _, err := f.Write(raw); err != nil {
 		return err
 	}
