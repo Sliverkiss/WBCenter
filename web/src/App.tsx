@@ -15,10 +15,11 @@ const post = <T,>(url: string, body: unknown = {}) => request<T>(url, { method: 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [page, setPage] = useState<Page>('overview')
+  const [readOnly, setReadOnly] = useState(false)
   const [notice, setNotice] = useState('')
 
   const check = useCallback(async () => {
-    try { const s = await get<{ authenticated: boolean }>('/api/session'); setAuthed(s.authenticated) } catch { setAuthed(false) }
+    try { const s = await get<{ authenticated: boolean; read_only?: boolean }>('/api/session'); setAuthed(s.authenticated); setReadOnly(Boolean(s.read_only)) } catch { setAuthed(false) }
   }, [])
   useEffect(() => { void check() }, [check])
   if (authed === null) return <div className="center">正在连接本地控制台…</div>
@@ -33,7 +34,7 @@ export default function App() {
     <aside className="sidebar">
       <div className="wordmark"><b>WORK<br />BUDDY<span>›</span></b><small>LOCAL CONTROL ROOM</small></div>
       <nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'nav active' : 'nav'} onClick={() => setPage(id)}><i>{icon}</i>{label}</button>)}</nav>
-      <div className="side-bottom"><span>第三方本地控制台</span><button className="link" onClick={() => void post('/api/logout').then(() => setAuthed(false))}>退出登录</button></div>
+      <div className="side-bottom"><span>第三方本地控制台</span>{readOnly && <span className="badge">只读模式（不写入 auths）</span>}<button className="link" onClick={() => void post('/api/logout').then(() => setAuthed(false))}>退出登录</button></div>
     </aside>
     <main className="main">
       {notice && <div className="notice">{notice}<button onClick={() => setNotice('')}>×</button></div>}
@@ -44,7 +45,7 @@ export default function App() {
       {page === 'automation' && <Automation onNotice={setNotice} />}
       {page === 'scheduler' && <Scheduler />}
       {page === 'activities' && <Activities />}
-      {page === 'oauth' && <OAuth onNotice={setNotice} onDone={() => setPage('accounts')} />}
+      {page === 'oauth' && <OAuth readOnly={readOnly} onNotice={setNotice} onDone={() => setPage('accounts')} />}
     </main>
   </div>
 }
@@ -90,6 +91,6 @@ function Scheduler(){
 
 function Activities(){const [items,setItems]=useState<Any[]|null>(null);const load=useCallback(()=>void get<{items:Any[]}>('/api/activities').then(d=>setItems(d.items)),[]);useEffect(load,[load]);if(!items)return <Loading/>;return <><Head eyebrow="ACTIVITIES" title="活动管理" text="直接读取成长任务，自动化探测以任务编号去重发现新增任务。" action={<button className="black" onClick={load}>立即探测</button>}/><section className="card table"><table><thead><tr><th>账号</th><th>活动任务</th><th>状态</th><th>奖励</th><th></th></tr></thead><tbody>{items.map((x,i)=><tr key={`${String(x.uid)}-${String(x.code)}-${i}`}><td>{String(x.nickname||x.uid)}</td><td>{String(x.name||x.code)}</td><td>{String(x.status||'—')}</td><td>{fmt(x.reward)}</td><td>{Boolean(x.new)&&<Badge ok>新发现</Badge>}</td></tr>)}</tbody></table>{items.length===0&&<Empty text="当前没有可读取的成长任务。"/>}</section></>}
 
-function OAuth({onNotice,onDone}:{onNotice:(s:string)=>void;onDone:()=>void}){const[region,setRegion]=useState('cn');const[flow,setFlow]=useState<{id:string;url:string}|null>(null);const[starting,setStarting]=useState(false);const start=async()=>{setStarting(true);try{setFlow(await post('/api/oauth/start',{region}) as {id:string;url:string})}catch(e){onNotice(e instanceof Error?e.message:'发起失败')}finally{setStarting(false)}};useEffect(()=>{if(!flow)return;const timer=window.setInterval(()=>void post<{status:string;nickname?:string}>(`/api/oauth/${encodeURIComponent(flow.id)}/poll`).then(r=>{if(r.status==='success'){window.clearInterval(timer);onNotice(`账号 ${r.nickname||''} 已保存`);onDone()}}).catch(()=>undefined),3000);return()=>window.clearInterval(timer)},[flow,onDone,onNotice]);return <><Head eyebrow="OAUTH" title="添加账号" text="选择账号区域后完成 WorkBuddy 网页授权；凭据只写入共享 auths 目录。"/><section className="card oauth"><label>账号区域<select value={region} onChange={e=>setRegion(e.target.value)}><option value="cn">中国大陆</option><option value="global">国际版</option></select></label><button className="black" disabled={starting} onClick={()=>void start()}>{starting?'正在获取授权链接…':'发起 OAuth 授权'}</button>{flow&&<div className="oauth-link"><p>请在新窗口完成授权，控制台会自动轮询结果。</p><a className="black" href={flow.url} target="_blank" rel="noreferrer">打开 WorkBuddy 授权页</a></div>}</section></>}
+function OAuth({readOnly,onNotice,onDone}:{readOnly:boolean;onNotice:(s:string)=>void;onDone:()=>void}){const[region,setRegion]=useState('cn');const[flow,setFlow]=useState<{id:string;url:string}|null>(null);const[starting,setStarting]=useState(false);const start=async()=>{setStarting(true);try{setFlow(await post('/api/oauth/start',{region}) as {id:string;url:string})}catch(e){onNotice(e instanceof Error?e.message:'发起失败')}finally{setStarting(false)}};useEffect(()=>{if(!flow)return;const timer=window.setInterval(()=>void post<{status:string;nickname?:string}>(`/api/oauth/${encodeURIComponent(flow.id)}/poll`).then(r=>{if(r.status==='success'){window.clearInterval(timer);onNotice(`账号 ${r.nickname||''} 已保存`);onDone()}}).catch(()=>undefined),3000);return()=>window.clearInterval(timer)},[flow,onDone,onNotice]);return <><Head eyebrow="OAUTH" title="添加账号" text="选择账号区域后完成 WorkBuddy 网页授权；凭据只写入共享 auths 目录。"/><section className="card oauth">{readOnly&&<p className="muted">服务端已开启只读模式：这里发起的授权即使完成，凭据也不会写入 auths 目录，因此已禁用。</p>}<label>账号区域<select value={region} onChange={e=>setRegion(e.target.value)}><option value="cn">中国大陆</option><option value="global">国际版</option></select></label><button className="black" disabled={starting||readOnly} onClick={()=>void start()}>{starting?'正在获取授权链接…':'发起 OAuth 授权'}</button>{flow&&<div className="oauth-link"><p>请在新窗口完成授权，控制台会自动轮询结果。</p><a className="black" href={flow.url} target="_blank" rel="noreferrer">打开 WorkBuddy 授权页</a></div>}</section></>}
 
 function Badge({ok,children}:{ok?:boolean;children:React.ReactNode}){return <span className={ok===false?'badge bad':'badge'}>{children}</span>};function Empty({text}:{text:string}){return <div className="empty">{text}</div>}
