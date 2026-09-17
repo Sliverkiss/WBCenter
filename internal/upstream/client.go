@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -815,8 +816,19 @@ func findObjectRows(v any) []map[string]any {
 				}
 			}
 		}
-		for _, child := range x {
-			if rows := findObjectRows(child); rows != nil {
+		// 兜底：没有命中首选键时按**字典序**遍历子节点。
+		//
+		// 必须是确定顺序：Go 的 map 迭代顺序每次随机（自 Go 1.12 起刻意随机化），
+		// 直接 range map 会让同一份响应在多次解析中挑中不同数组——面板的列表会在刷新
+		// 之间抖动；而 service 侧以 UID:taskCode 记录「已见任务」，抖动还会让「新任务」
+		// 通知反复触发。排序后口径可预期：首选键清单优先，其次是键名字典序。
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if rows := findObjectRows(x[k]); rows != nil {
 				return rows
 			}
 		}
