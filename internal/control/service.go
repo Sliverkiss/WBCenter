@@ -71,6 +71,23 @@ type loginFlow struct {
 	Created    time.Time
 }
 
+// loginFlowTTL 授权流程的有效期：超时后既不可能轮询成功，也不该继续占内存。
+const loginFlowTTL = 10 * time.Minute
+
+// pruneLoginsLocked 回收已过期的授权流程（调用方须持有 s.mu）。
+//
+// 为什么需要：流程只在**登录成功**时才从 logins 里删除（见 PollOAuth）。用户点开授权页
+// 又关掉、或一直没完成的流程会永久留在 map 里，而每条都承载着一个上游 state 与一个
+// authUrl；每发起一次授权就新增一条，面板进程生命周期内只增不减——纯粹的记账内存泄漏。
+// 被放弃的流程再也不会被轮询，所以除了这里，它们没有任何回收时机。
+func (s *Service) pruneLoginsLocked(now time.Time) {
+	for id, flow := range s.logins {
+		if now.Sub(flow.Created) >= loginFlowTTL {
+			delete(s.logins, id)
+		}
+	}
+}
+
 type Service struct {
 	cfg          Config
 	store        *authstore.Store
@@ -275,8 +292,10 @@ func (s *Service) StartOAuth(region string) (string, string, error) {
 		return "", "", err
 	}
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
+	now := time.Now()
 	s.mu.Lock()
-	s.logins[id] = loginFlow{Region: r, State: state, URL: url, Created: time.Now()}
+	s.pruneLoginsLocked(now)
+	s.logins[id] = loginFlow{Region: r, State: state, URL: url, Created: now}
 	s.mu.Unlock()
 	return id, url, nil
 }
@@ -287,7 +306,12 @@ func (s *Service) PollOAuth(id string) (map[string]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("授权会话不存在或已过期")
 	}
-	if time.Since(flow.Created) > 10*time.Minute {
+	if time.Since(flow.Created) > loginFlowTTL {
+		// 既然已经判定过期，就顺手回收：留着它也没有任何用处（重新发起会得到新 id），
+		// 只会让放弃的授权流程永久占内存。
+		s.mu.Lock()
+		delete(s.logins, id)
+		s.mu.Unlock()
 		return nil, fmt.Errorf("授权会话已过期")
 	}
 	a, err := s.up.PollLogin(flow.Region, flow.State)
