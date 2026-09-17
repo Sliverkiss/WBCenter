@@ -190,13 +190,30 @@ func IsSessionDead(err error) bool {
 	return errors.As(err, &ue) && ue.Kind == ErrSessionDead
 }
 
+// alreadyCheckedInMarkers 判定「今日已签到」这类幂等成功的关键词。
+//
+// 只收「明确表示已经做过」的措辞，不收操作名本身。判定串来自 err.Error()，其中会拼进
+// 上游原始 msg/body，所以裸的操作名（早先用的 "checkin"）或裸副词（"already"）会把
+// 任何提到签到、或碰巧含 already 的真实失败也判成幂等成功：
+//
+//	401 token already expired         → 报「签到成功」，账号其实已失效、需要重登
+//	400 checkin failed: invalid req…  → 报「签到成功」，其实什么都没做
+//	500 daily-checkin service unav…   → 报「签到成功」，上游根本没处理
+//
+// 宁可窄一点：漏判的后果只是把「已签过」显示成失败（用户一眼能看出，可自行判断），
+// 误判的后果是悄悄假成功，并把失效账号藏起来。
+var alreadyCheckedInMarkers = []string{
+	"已签到", "签到过", "code=10001",
+	"already checked", "already checkin", "checkin done",
+}
+
 // IsAlreadyCheckedIn 判定签到接口返回的是「今日已签到」这类幂等成功。
 func IsAlreadyCheckedIn(err error) bool {
 	if err == nil {
 		return false
 	}
 	s := strings.ToLower(err.Error())
-	for _, m := range []string{"已签到", "already", "checkin", "code=10001", "签到过"} {
+	for _, m := range alreadyCheckedInMarkers {
 		if strings.Contains(s, m) {
 			return true
 		}
