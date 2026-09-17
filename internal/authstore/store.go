@@ -127,7 +127,11 @@ func (s *Store) pathFor(uid string) (string, error) {
 	return filepath.Join(s.dir, "workbuddy-"+uid+".json"), nil
 }
 
-// List 扫描目录下全部 workbuddy-*.json 并按 uid 排序返回。
+// List 扫描目录下全部 workbuddy*.json（宽模式）并按 uid 排序返回。
+//
+// 口径必须与网关一致：网关侧 AuthFileGlob 就是宽模式 "workbuddy*.json"，不带连字符的
+// 文件（如 workbuddy_new.json）会被网关当作正常账号加载。若这里改成 workbuddy-<uid>.json
+// 窄模式，就会出现「网关在用、面板看不见」的错位（网关侧注释称之为排障口径对不上）。
 // 单个文件解析失败不中断：跳过并在第二个返回值里报告，让前端能看到坏文件。
 func (s *Store) List() ([]*Account, []string) {
 	files, err := filepath.Glob(filepath.Join(s.dir, "workbuddy*.json"))
@@ -156,6 +160,16 @@ func (s *Store) List() ([]*Account, []string) {
 }
 
 // Get 按 uid 读取单个账号；不存在返回 os.ErrNotExist 包装错误。
+// Get 按 uid 读取账号凭证。
+//
+// 先取规范文件名 workbuddy-<uid>.json；只有当它不存在时，才按 uid 扫描目录回退。
+//
+// 为什么需要回退：网关用宽模式加载凭证（AuthFileGlob = "workbuddy*.json"），不带连字符的
+// 文件（如 workbuddy_new.json）在网关侧是**正常账号**，List 也会把它列出来。而操作路径
+// （签到 / 旅行 / 刷新凭据 / 积分详情）全部经由 Get 定位文件——若这里只认规范文件名，
+// 面板就会出现一个「列得出来、点什么都是找不到文件」的账号。
+//
+// 规范文件优先，规则确定；uid 非法时不会走到回退（pathFor 已校验，无穿越风险）。
 func (s *Store) Get(uid string) (*Account, error) {
 	p, err := s.pathFor(uid)
 	if err != nil {
@@ -163,6 +177,18 @@ func (s *Store) Get(uid string) (*Account, error) {
 	}
 	raw, err := os.ReadFile(p)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		// 回退：与 List 同一口径扫描目录，按解析出的 uid 匹配。
+		// 这里刻意不掩盖「规范文件存在但内容坏了」的情况——那种情况上面已经返回解析错误。
+		if rows, _ := s.List(); len(rows) > 0 {
+			for _, a := range rows {
+				if a.UID == uid {
+					return a, nil
+				}
+			}
+		}
 		return nil, err
 	}
 	a, err := Parse(raw)
