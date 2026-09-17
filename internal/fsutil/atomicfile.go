@@ -18,13 +18,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
 // WriteFileAtomic 原子写入文件（0600 权限）。
 //
 // 行为：
-//  1. 先写 <path>.tmp-<random> 再 rename 覆盖 —— 正常路径完全原子，不会出现半截文件。
+//  1. 先写 <dir>/.<name>.tmp-<random>（唯一名）再 rename 覆盖 —— 正常路径完全原子，
+//     不会出现半截文件，也不会与同目录里的其它进程撞临时文件。
 //  2. 若 rename 因 EBUSY/EXDEV 失败（Docker 单文件 bind mount），回退为原地重写。
 //
 // 返回的 fallback 为 true 表示走了回退路径（非原子），供调用方在日志/响应中提示。
@@ -33,11 +35,33 @@ func WriteFileAtomic(path string, raw []byte, perm os.FileMode) (fallback bool, 
 		return false, fmt.Errorf("创建目录: %w", err)
 	}
 
-	tmp := path + ".tmp"
+	// 临时文件必须**只属于本次写入**：auths 目录会被网关进程并发写，而网关侧
+	// SaveAtomic 用的临时名正是固定名 <path>.tmp。若这里也复用固定名，两个进程会写
+	// 同一个临时文件、再各自 rename，把彼此写了一半的字节混进正式凭证——凭证变成
+	// 不可解析的 JSON，网关 LoadDir 静默跳过该账号、面板也会报解析失败。
+	// CreateTemp 生成唯一名（O_EXCL），且句柄只属于本次写入，不会被别人的 rename 带走。
+	f, err := os.CreateTemp(dirOf(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		// 目录不可写（只读/权限不足）：直接报错，不要动原文件。
+		return false, fmt.Errorf("创建临时文件: %w", err)
+	}
+	tmp := f.Name()
+	// perm 只在新文件创建时生效，显式 Chmod 才能保证最终权限就是调用方要求的那个
+	// （凭证/状态文件一律 0600，不能被继承来的旧权限放过）。
+	if err := f.Chmod(perm); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return false, fmt.Errorf("设置临时文件权限: %w", err)
+	}
 	// 先写临时文件：同时也验证了目标目录可写，避免"回退路径写到一半才发现不可写"。
-	if err := os.WriteFile(tmp, raw, perm); err != nil {
-		// tmp 都写不了（目录只读/权限不足）：直接报错，不要动原文件。
+	if _, err := f.Write(raw); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
 		return false, fmt.Errorf("写临时文件: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return false, fmt.Errorf("关闭临时文件: %w", err)
 	}
 	if err := os.Rename(tmp, path); err == nil {
 		return false, nil
